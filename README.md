@@ -1,5 +1,14 @@
 # Steam 独立游戏雷达｜采集系统
 
+## V1.4.1 生产稳定性整改（2026-10-11）
+
+- **生产与代码测试隔离**：CCU Sampler、Steam Radar V1.2 和 Radar Watchdog 的生产 Workflows 只由 `schedule` / `workflow_dispatch` 触发；代码 `push` / `pull_request` 则由 `.github/workflows/radar-ci.yml` 离线编译与测试，不使用生产凭证或读写 Google Sheet。GitHub Actions 定时触发可能延迟。
+- **Google Sheets 429 限流防护**：`sheets_retry.py` 只对 API 429/暂时性 5xx 重试，最多5次并指数退避；对权限类 403 立即报错。候选最后发现时间按**每天最多一次**更新并批量提交；评论增速同日不变的数据跳过写入，发生真实变化时一次批量提交，避免每行一次写请求。Google 官方每用户每项目每分钟约60次读/60次写的额度下，代码高频提交触发生产采集很容易超限。
+- **独立于 Sheet 的健康检查**：两小时一次的 `radar-watchdog.yml` 首先调用 `github_run_health.py` 检查最后一次**定时** CCU/每日研究的 GitHub Actions 状态与新鲜度；不因旧开发 push 失败持续误报。然后再执行 `radar_v12.py health` 记录中文「运行告警」，即使 Google Sheet 429，GitHub Job 仍会显示失败。GitHub 是否发送邮件/推送取决于账号通知设置，不等同于 ChatGPT 条件告警。
+- **数据语义边界**：Steam Index API 的 `data.current` 与 `points[-1].value` 可能不同；`meta.generatedAt` 和历史 `last_point.at` 存在于「CCU原始采样」原始响应摘要中，不能把最近历史点时间擅自视为 `data.current` 的精确观测时间。D1/D7/D30 按实际已验证多次采样做有时间容差的比较，缺历史不计算；待进一步将生成时间/观测时间拆成独立列后才能称严格时间对齐。
+- **验收要点**：`radar-ci.yml` 成功只证明离线代码检查通过，不代表生产采集成功；需在下一轮真正 `schedule` 或 `workflow_dispatch` 后核实三个生产 Workflow、中文「运行日志」、实际 CCU/评论行数和「黑马后验评估」写入，以及无新的 Google Sheets 429。不得把“没有写新增行（正常去重）”当作失败。
+- 此整改不增加 ChatGPT 定时任务；保持每天09:30正式日报一个活跃任务。
+
 ## V1.3 审核队列与正式入库（2026-10-11）
 
 - 取数层发现的 AppID 进入中文「新作候选」，从不直接晋级。候选审核栏保留 `官方核验依据 / 最近核验时间 / 人工复核优先级`，原始来源、标签和最近发现时间均保留。
@@ -18,7 +27,7 @@
 - 只有同AppID、口径、实测时间可比才计算评论24小时增量及7日/30日基准。首次样本不制造增长指标；简中与非简中好评率可在相同采样日用全语言减简中推导。生成中文「评论增速」并兼容当日旧行的更新。
 - `radar_v12.py health` 在每日工作流及每6小时CCU流程后检查最近成功采样、有效样本量、发现及评论任务失败，记录中文「运行告警」；正常检查静默。首次演示及重跑应当查「运行日志」判定真实行数，不把0条新写入当失败（当天已有有效样本可复用）。
 - `tests/test_v12.py` 不需要密钥，覆盖日期、字段解析、评论采样对照口径和Steam响应计数一致性。
-- ChatGPT原有每日09:30日报先审核「新作候选」，再从「评论采样」「评论增速」消费新的统一口径数据；仅可信数据可用于趋势。异常才通过独立2小时条件告警通知，平常日报仅写Sheet。
+- ChatGPT每天09:30日报消费候选与可信数据且仅写 Sheet；每2小时的健康巡检已迁移到 GitHub Actions，不再占用第2个 ChatGPT 定时任务。
 
 
 长期 Google Sheet 已切换为中文工作表名称和中文表头。采集脚本通过 sheet_schema.py 兼容中文展示字段与旧英文代码字段；不要直接把中文表头改回英文。主要工作表：游戏库、重点观察、CCU原始采样、CCU可信样本、CCU增长趋势、运行日志。
@@ -38,7 +47,7 @@ Scheduled data collection with GitHub Actions. Google Sheets is the durable data
 - Workflow: .github/workflows/ccu-sampler.yml
 - Runs on a six-hour UTC cron: 00:00, 06:00, 12:00 and 18:00 UTC (08:00, 14:00, 20:00 and 02:00 Beijing time). GitHub may delay scheduled runs.
 - Actions > CCU Sampler > Run workflow permits a manual test.
-- Collector or workflow changes also trigger a run on main; concurrency protects against overlap.
+- Collector or workflow changes trigger offline CI tests only, not a production collection. Real production collection runs on schedule or manual workflow_dispatch; concurrency guards against overlap.
 - Production check: verify Run_Log, CCU_Samples, CCU_Validated and CCU_Trend. An Action exit code alone does not prove that CCU values were obtained.
 
 ## Required GitHub Actions repository secrets
