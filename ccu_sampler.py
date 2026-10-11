@@ -31,8 +31,8 @@ def numeric_ccu(value):
     if isinstance(value, bool) or value is None:
         return None
     try:
-        result = int(value)
-        return result if result >= 0 else None
+        number = float(value)
+        return int(number) if number >= 0 and number.is_integer() else None
     except (ValueError, TypeError, OverflowError):
         return None
 
@@ -81,6 +81,8 @@ def request_index(appid, session):
             "all_time_peak": numeric_ccu(data.get("allTimePeak")),
             "generated_at": generated.isoformat(),
             "last_point": last,
+            "current_observed_at": None,
+            "current_time_provenance": "No independent timestamp for API data.current; collection time is only a proxy",
         }
         return current, "OK", json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
     except (requests.RequestException, ValueError, TypeError) as exc:
@@ -99,7 +101,12 @@ def request_steam(appid, session):
         value = numeric_ccu(res.get("player_count"))
         if value is None:
             return None, "STEAM_CURRENT_MISSING", ""
-        return value, "OK", json.dumps({"player_count": value, "result": res.get("result")})
+        return value, "OK", json.dumps({
+            "player_count": value,
+            "result": res.get("result"),
+            "response_received_at": datetime.now(timezone.utc).isoformat(),
+            "current_time_provenance": "Steam official response receipt time proxy",
+        })
     except (requests.RequestException, ValueError, TypeError) as exc:
         return None, "STEAM_REQUEST_ERROR", str(exc)[:100]
 
