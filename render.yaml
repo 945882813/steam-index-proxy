@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: steam-index-proxy
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: STEAM_INDEX_API_KEY
+        sync: false
+      - key: PROXY_TOKEN
+        sync: false
