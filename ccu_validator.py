@@ -5,20 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import gspread
 from google.oauth2.service_account import Credentials
+from sheet_schema import worksheet, records, header_language, output_headers, HEADERS_EN
 
-RAW_HEADERS = [
-    "Sample_Time", "AppID", "Game_Name", "CCU", "Range", "Source",
-    "Source_URL", "Data_Quality", "Status", "Error_or_Note", "Raw_Response",
-]
-VALID_HEADERS = [
-    "Sample_Time", "AppID", "Game_Name", "CCU", "Source",
-    "Source_URL", "Data_Quality", "Sample_Key",
-]
-TREND_HEADERS = [
-    "As_Of", "AppID", "Game_Name", "CCU_Current", "CCU_24h_Ago",
-    "Change_D1_Pct", "CCU_7d_Ago", "Change_D7_Pct",
-    "CCU_30d_Ago", "Change_D30_Pct", "Data_Status", "Source",
-]
+RAW_HEADERS = HEADERS_EN['CCU_Samples']
+VALID_HEADERS = HEADERS_EN['CCU_Validated']
+TREND_HEADERS = HEADERS_EN['CCU_Trend']
 ALLOWED_QUALITY = {"VERIFIED", "FRESH_FALLBACK"}
 ALLOWED_SOURCE = {"Steam Index", "Steam Official"}
 WINDOW_HOURS = 3.25
@@ -50,18 +41,21 @@ def spreadsheet():
     return gspread.authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
 
 
-def replace_generated(worksheet, header, rows):
-    current = worksheet.row_values(1)
+def replace_generated(worksheet_obj, canonical, rows):
+    header = output_headers(canonical, worksheet_obj)
+    current = worksheet_obj.row_values(1)
+    if current:
+        header_language(canonical, current)
     if current and current[:len(header)] != header:
-        raise RuntimeError(f"{worksheet.title}: schema mismatch")
+        raise RuntimeError(f"{worksheet_obj.title}: schema mismatch")
     data = [header] + rows
-    if len(data) > worksheet.row_count:
-        worksheet.add_rows(len(data) - worksheet.row_count)
-    worksheet.update(range_name="A1", values=data, value_input_option="RAW")
+    if len(data) > worksheet_obj.row_count:
+        worksheet_obj.add_rows(len(data) - worksheet.row_count)
+    worksheet_obj.update(range_name="A1", values=data, value_input_option="RAW")
     next_row = len(data) + 1
     if next_row <= worksheet.row_count:
         # The tab is exclusively generated output, so remove any obsolete tail.
-        worksheet.batch_clear([f"A{next_row}:L{worksheet.row_count}"])
+        worksheet_obj.batch_clear([f"A{next_row}:L{worksheet.row_count}"])
 
 
 def closest(history, latest_at, days):
@@ -82,14 +76,13 @@ def change(current, previous):
 
 def main():
     book = spreadsheet()
-    source = book.worksheet("CCU_Samples")
-    if source.row_values(1)[:len(RAW_HEADERS)] != RAW_HEADERS:
-        raise RuntimeError("CCU_Samples unexpected schema; refusing to validate")
-    records = source.get_all_records()
+    source = worksheet(book, "CCU_Samples")
+    header_language("CCU_Samples", source.row_values(1))
+    raw_records = records(book, "CCU_Samples")
     clean = {}
     history = {}
 
-    for row in records:
+    for row in raw_records:
         quality = str(row.get("Data_Quality", "")).strip().upper()
         if quality not in ALLOWED_QUALITY or str(row.get("Status", "")).strip().upper() != "OK":
             continue
@@ -131,8 +124,8 @@ def main():
             change(now_ccu, p30), status, latest_row[4],
         ])
     trends.sort(key=lambda r: (r[0], r[1]), reverse=True)
-    replace_generated(book.worksheet("CCU_Validated"), VALID_HEADERS, valid_rows)
-    replace_generated(book.worksheet("CCU_Trend"), TREND_HEADERS, trends)
+    replace_generated(worksheet(book, "CCU_Validated"), "CCU_Validated", valid_rows)
+    replace_generated(worksheet(book, "CCU_Trend"), "CCU_Trend", trends)
     print(f"Validated unique samples={len(valid_rows)}, trend apps={len(trends)}")
 
 
