@@ -12,6 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 import gspread
+from sheets_retry import authorize
 import requests
 from google.oauth2.service_account import Credentials
 from sheet_schema import records, worksheet
@@ -79,7 +80,7 @@ def client():
     creds = Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
-    return gspread.authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
+    return authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
 
 
 def check_headers(ws, exact):
