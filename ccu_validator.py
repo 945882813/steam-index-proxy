@@ -50,12 +50,12 @@ def replace_generated(worksheet_obj, canonical, rows):
         raise RuntimeError(f"{worksheet_obj.title}: schema mismatch")
     data = [header] + rows
     if len(data) > worksheet_obj.row_count:
-        worksheet_obj.add_rows(len(data) - worksheet.row_count)
+        worksheet_obj.add_rows(len(data) - worksheet_obj.row_count)
     worksheet_obj.update(range_name="A1", values=data, value_input_option="RAW")
     next_row = len(data) + 1
-    if next_row <= worksheet.row_count:
+    if next_row <= worksheet_obj.row_count:
         # The tab is exclusively generated output, so remove any obsolete tail.
-        worksheet_obj.batch_clear([f"A{next_row}:L{worksheet.row_count}"])
+        worksheet_obj.batch_clear([f"A{next_row}:L{worksheet_obj.row_count}"])
 
 
 def closest(history, latest_at, days):
