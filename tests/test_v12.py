@@ -2,10 +2,15 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
-from radar_v12 import REVIEW_BASIS, to_int, parse_time, prior_sample, review_summary
+from radar_v12 import REVIEW_BASIS, to_int, parse_time, prior_sample, review_summary, candidate_priority
 
 
 class RadarV12UnitTests(unittest.TestCase):
+    def test_candidate_priority_is_queue_order_not_approval(self):
+        self.assertEqual(candidate_priority("CN:new_releases, US:new_releases", "Adventure, Indie", "疑似独立，待核验"), "P1-关注")
+        self.assertEqual(candidate_priority("CN:top_sellers", "Indie", "疑似独立，待核验"), "P2-观察")
+        self.assertEqual(candidate_priority("US:top_sellers", "Sports", "大厂关联，需复核"), "P3-排除")
+
     def test_numeric_values_are_nonnegative_and_integral(self):
         self.assertEqual(to_int("31"), 31)
         self.assertEqual(to_int(0), 0)
