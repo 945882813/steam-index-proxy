@@ -176,8 +176,8 @@ def discover():
     log(book, "新作候选发现", state, len(new_rows), "Steam Official featured categories",
         "US + CN storefront", f"discovered={len(discovered)}; new={len(new_rows)}; skipped_known={len(known)}; detail_failures={detail_failures}; " + ";".join(errors))
     print(f"Discovery discovered={len(discovered)} new={len(new_rows)} partial={state != 'OK'}")
-    if errors and not new_rows:
-        raise RuntimeError("Steam discovery sources partially/fully unavailable")
+    if errors and not discovered:
+        raise RuntimeError("Steam discovery sources unavailable")
 
 
 def review_targets(book):
@@ -273,15 +273,15 @@ def reviews():
             histories[appid].append(dict(zip(REVIEW_HEADERS, row)))
     if output:
         raw_ws.append_rows(output, value_input_option="RAW")
-    existing_velocity = {(str(r.get("报告日期", "")), str(r.get("AppID", ""))) for r in []}
     raw_velocity = velocity_ws.get_all_records()
     existing_velocity = {
-        (str(r.get("计算时间", "")).strip()[:10], str(r.get("AppID", "")).strip()) for r in raw_velocity
+        (str(r.get("计算时间", "")).strip()[:10], str(r.get("AppID", "")).strip()): i + 2
+        for i, r in enumerate(raw_velocity)
     }
     derived = []
+    refreshed = 0
     for appid, name in targets:
-        if (today, appid) in existing_velocity:
-            continue
+        existing_row = existing_velocity.get((today, appid))
         glob = by_app[appid].get("all")
         if not glob or glob[2] == 0:
             continue
@@ -311,7 +311,7 @@ def reviews():
         gap = (100 * noncn_positive / noncn_total - cn_rate) if cn_rate is not None and noncn_total > 0 and noncn_positive >= 0 else None
         status = "可比D1" if daily_ok else ("累计评论下降，需复核" if "NEGATIVE" in deltas else "历史不足")
         source = f"{STEAM_STORE}/appreviews/{appid}?json=1&filter=updated&purchase_type=all&review_type=all&filter_offtopic_activity=0"
-        derived.append([
+        derived_row = [
             now, appid, name,
             d1[0] if daily_ok else "", d1[1] if daily_ok else "",
             d1[2] if daily_ok else "",
@@ -324,13 +324,18 @@ def reviews():
             round(gap, 2) if gap is not None else "",
             source, status, REVIEW_BASIS, prev1["采样时间"] if daily_ok else "",
             cn[2] if cn else "",
-        ])
+        ]
+        if existing_row:
+            velocity_ws.update(range_name=f"A{existing_row}:R{existing_row}", values=[derived_row], value_input_option="RAW")
+            refreshed += 1
+        else:
+            derived.append(derived_row)
     if derived:
         velocity_ws.append_rows(derived, value_input_option="RAW")
     state = "OK" if not failures else ("PARTIAL" if successful else "FAILED")
     log(book, "评论累计采样与增速", state, len(output), "Steam Official appreviews",
-        "all + schinese; filter=updated", f"target={len(targets)}; successful={successful}; velocity_new={len(derived)}; failures={';'.join(failures[:8])}")
-    print(f"Review app targets={len(targets)} new_samples={len(output)} velocity_rows={len(derived)} failures={len(failures)}")
+        "all + schinese; filter=updated", f"target={len(targets)}; successful={successful}; velocity_new={len(derived)}; velocity_refreshed={refreshed}; failures={';'.join(failures[:8])}")
+    print(f"Review app targets={len(targets)} new_samples={len(output)} velocity_new={len(derived)} velocity_refreshed={refreshed} failures={len(failures)}")
     if not successful:
         raise RuntimeError("No valid Steam review summaries")
 
@@ -363,6 +368,16 @@ def health(ccu_only=False):
                 anomalies[code] = ("警告", task, latest.isoformat(), "任务未在36小时内产生运行日志", "检查每日研究Workflow")
     existing = alert_ws.get_all_records()
     active = {str(r.get("告警编号")): i + 2 for i, r in enumerate(existing) if str(r.get("告警状态")) == "触发"}
+    if not ccu_only:
+        for task, code in (("新作候选发现", "DISCOVERY_FAILED"), ("评论累计采样与增速", "REVIEWS_FAILED")):
+            recent_runs = [r for r in logs if str(r.get("任务", "")) == task and parse_time(r.get("运行时间"))]
+            if recent_runs:
+                latest = max(recent_runs, key=lambda r: parse_time(r.get("运行时间")))
+                status = str(latest.get("状态", "")).strip().upper()
+                if status in ("FAILED", "PARTIAL"):
+                    anomalies[code] = ("严重" if status == "FAILED" else "警告", task,
+                        str(latest.get("运行时间", "")), f"最近一次运行状态={status}",
+                        "检查日志中的失败接口及区域；谨慎重试")
     for code, (severity, item, last, why, action) in anomalies.items():
         if code in active:
             alert_ws.update(range_name=f"I{active[code]}", values=[[now.isoformat(timespec="seconds")]], value_input_option="RAW")
