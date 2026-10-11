@@ -75,6 +75,18 @@ class BlackhorseEvaluationTest(unittest.TestCase):
         self.assertEqual(result[13],861)
         self.assertIn("成熟对照",result[15])
 
+    def test_seven_day_review_window_matches_real_daily_0820_sampling(self):
+        basis="filter=updated;purchase_type=all;review_type=all;offtopic=0"
+        next_sample=LOCK+timedelta(days=7,hours=9,minutes=40)
+        samples=collect_reviews([{
+            "AppID":"4847040","状态":"OK","语言口径":"all",
+            "评论过滤口径":basis,"采样时间":next_sample.isoformat(),
+            "累计评论":29
+        }])
+        row=score_one(forecast("4847040",baseline_reviews=11),{},samples,next_sample+timedelta(minutes=1))
+        self.assertEqual(row[13],18)
+        self.assertIn("近似",row[15])
+
     def test_mismatched_times_do_not_fabricate_7d(self):
         p=forecast("4847040",baseline_reviews=11)
         samples={"4847040":[(LOCK+timedelta(days=6),99)]}
