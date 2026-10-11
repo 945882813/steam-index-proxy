@@ -1,0 +1,36 @@
+name: Steam Radar Watchdog
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/radar-watchdog.yml'
+  schedule:
+    - cron: '15 */2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steam-radar-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Detect stale data and active radar alerts
+        run: python radar_v12.py health
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
