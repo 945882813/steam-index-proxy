@@ -42,3 +42,10 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
           GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
+
+      - name: Check CCU freshness and verified coverage
+        if: ${{ always() }}
+        run: python radar_v12.py health --ccu-only
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
