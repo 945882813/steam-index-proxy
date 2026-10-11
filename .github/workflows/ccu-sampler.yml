@@ -23,6 +23,6 @@ jobs:
       - name: Run CCU sampler
         run: python ccu_sampler.py
         env:
-          STEAM_INDEX_API_KEY: SET_IN_GITHUB_SECRETS
-          GOOGLE_SERVICE_ACCOUNT_JSON: SET_IN_GITHUB_SECRETS
-          GOOGLE_SHEET_ID: SET_IN_GITHUB_SECRETS
+          STEAM_INDEX_API_KEY: ${{ secrets['STEAM_INDEX_API_KEY'] }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
