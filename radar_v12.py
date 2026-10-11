@@ -181,11 +181,18 @@ def discover():
         ])
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
-    # Update discovery evidence on existing candidates without overwriting review decisions.
-    for appid, info in discovered.items():
+    # One batched update at most, and only once per day for an existing AppID.
+    # A push/test retry must not generate ~60 independent Google Sheets writes.
+    rediscovered = []
+    for appid in discovered:
         row = existing.get(appid)
-        if row is not None:
-            ws.update(range_name=f"M{row}", values=[[now]], value_input_option="RAW")
+        if row is None:
+            continue
+        prior_seen = str(existing_rows[row - 2].get("最近发现时间", ""))
+        if prior_seen[:10] != now[:10]:
+            rediscovered.append({"range": f"M{row}", "values": [[now]]})
+    if rediscovered:
+        ws.batch_update(rediscovered, value_input_option="RAW")
     state = "OK" if not errors and not detail_failures else "PARTIAL"
     log(book, "新作候选发现", state, len(new_rows), "Steam Official featured categories",
         "US + CN storefront", f"discovered={len(discovered)}; new={len(new_rows)}; skipped_known={len(known)}; detail_failures={detail_failures}; " + ";".join(errors))
@@ -295,6 +302,7 @@ def reviews():
         for i, r in enumerate(raw_velocity)
     }
     derived = []
+    changed_existing = []
     refreshed = 0
     for appid, name in targets:
         existing_row = existing_velocity.get((today, appid))
@@ -342,10 +350,26 @@ def reviews():
             cn[2] if cn else "",
         ]
         if existing_row:
-            velocity_ws.update(range_name=f"A{existing_row}:R{existing_row}", values=[derived_row], value_input_option="RAW")
-            refreshed += 1
+            before = raw_velocity[existing_row - 2]
+            expected = velocity_ws.row_values(1)[:18]
+            # Ignore the calculated timestamp in A. The source sample for a
+            # given day is immutable, so same-day re-runs are genuine no-ops.
+            old_values = [before.get(column, "") for column in expected[1:]]
+            new_values = derived_row[1:]
+            def equivalent(left, right):
+                if left in ("", None) and right in ("", None):
+                    return True
+                return str(left) == str(right)
+            if not all(equivalent(a, b) for a, b in zip(old_values, new_values)):
+                changed_existing.append({
+                    "range": f"A{existing_row}:R{existing_row}",
+                    "values": [derived_row],
+                })
+                refreshed += 1
         else:
             derived.append(derived_row)
+    if changed_existing:
+        velocity_ws.batch_update(changed_existing, value_input_option="RAW")
     if derived:
         velocity_ws.append_rows(derived, value_input_option="RAW")
     state = "OK" if not failures else ("PARTIAL" if successful else "FAILED")
