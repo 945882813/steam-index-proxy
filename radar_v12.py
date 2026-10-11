@@ -250,12 +250,14 @@ def reviews():
     by_app = defaultdict(dict)
     failures = []
     successful = 0
+    reused = 0
     for appid, name in targets:
         for lang in ("all", "schinese"):
             unique = f"{today}|{appid}|{lang}|{REVIEW_BASIS}"
             current = next((r for r in histories[appid] if str(r.get("样本唯一键")) == unique and str(r.get("状态")) == "OK"), None)
             if current:
                 by_app[appid][lang] = (to_int(current["累计好评"]), to_int(current["累计差评"]), to_int(current["累计评论"]))
+                reused += 1
                 continue
             result, status = review_summary(s, appid, lang)
             time.sleep(0.3)
@@ -334,10 +336,10 @@ def reviews():
         velocity_ws.append_rows(derived, value_input_option="RAW")
     state = "OK" if not failures else ("PARTIAL" if successful else "FAILED")
     log(book, "评论累计采样与增速", state, len(output), "Steam Official appreviews",
-        "all + schinese; filter=updated", f"target={len(targets)}; successful={successful}; velocity_new={len(derived)}; velocity_refreshed={refreshed}; failures={';'.join(failures[:8])}")
-    print(f"Review app targets={len(targets)} new_samples={len(output)} velocity_new={len(derived)} velocity_refreshed={refreshed} failures={len(failures)}")
-    if not successful:
-        raise RuntimeError("No valid Steam review summaries")
+        "all + schinese; filter=updated", f"target={len(targets)}; sampled_new={successful}; reused_valid={reused}; velocity_new={len(derived)}; velocity_refreshed={refreshed}; failures={';'.join(failures[:8])}")
+    print(f"Review app targets={len(targets)} new_samples={len(output)} reused_valid={reused} velocity_new={len(derived)} velocity_refreshed={refreshed} failures={len(failures)}")
+    if successful + reused == 0:
+        raise RuntimeError("No valid or cached Steam review summaries")
 
 
 def health(ccu_only=False):
