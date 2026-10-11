@@ -7,22 +7,28 @@ on:
 
 jobs:
   sample:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run CCU sampler
+      - name: Collect CCU samples
         run: python ccu_sampler.py
         env:
           STEAM_INDEX_API_KEY: ${{ secrets['STEAM_INDEX_API_KEY'] }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
+
+      - name: Validate CCU samples and update trends
+        run: python ccu_validator.py
+        env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
           GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
