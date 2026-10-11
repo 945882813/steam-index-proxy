@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import gspread
+from sheets_retry import authorize
 import requests
 from google.oauth2.service_account import Credentials
 from sheet_schema import worksheet, records, header_language, HEADERS_EN
@@ -41,7 +42,7 @@ def connect():
     creds = Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
-    book = gspread.authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
+    book = authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
     header_language("CCU_Samples", worksheet(book, "CCU_Samples").row_values(1))
     return book
 
