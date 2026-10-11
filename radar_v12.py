@@ -256,7 +256,8 @@ def reviews():
     book = client()
     raw_ws, velocity_ws = book.worksheet("评论采样"), worksheet(book, "Review_Velocity")
     check_headers(raw_ws, REVIEW_HEADERS)
-    if velocity_ws.row_values(1)[14:18] != VELOCITY_EXTENSION:
+    velocity_headers = velocity_ws.row_values(1)
+    if velocity_headers[14:18] != VELOCITY_EXTENSION:
         raise RuntimeError("评论增速 extensions were not applied")
     existing = raw_ws.get_all_records()
     today = datetime.now(CN).date().isoformat()
@@ -351,7 +352,7 @@ def reviews():
         ]
         if existing_row:
             before = raw_velocity[existing_row - 2]
-            expected = velocity_ws.row_values(1)[:18]
+            expected = velocity_headers[:18]
             # Ignore the calculated timestamp in A. The source sample for a
             # given day is immutable, so same-day re-runs are genuine no-ops.
             old_values = [before.get(column, "") for column in expected[1:]]
