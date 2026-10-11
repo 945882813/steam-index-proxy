@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'radar_v12.py'
+      - 'blackhorse_eval.py'
       - 'tests/**'
       - '.github/workflows/radar-v12.yml'
   schedule:
@@ -33,7 +34,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Static syntax check
         run: |
-          python -m py_compile radar_v12.py sheet_schema.py
+          python -m py_compile radar_v12.py sheet_schema.py blackhorse_eval.py
           python -m unittest discover -s tests -v
       - name: Discover Steam candidates (US and CN)
         id: discovery
@@ -44,7 +45,9 @@ jobs:
       - name: Sample comparable Steam reviews and calculate velocity
         id: reviews
         if: ${{ always() }}
-        run: python radar_v12.py reviews
+        run: |
+          python radar_v12.py reviews
+          python blackhorse_eval.py
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
           GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
