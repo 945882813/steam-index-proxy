@@ -2,12 +2,6 @@ name: CCU Sampler
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'ccu_sampler.py'
-      - 'ccu_validator.py'
-      - '.github/workflows/ccu-sampler.yml'
   schedule:
     - cron: '0 */6 * * *'
 
