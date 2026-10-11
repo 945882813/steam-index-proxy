@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 import gspread
+from sheets_retry import authorize
 from google.oauth2.service_account import Credentials
 from sheet_schema import worksheet
 
@@ -104,7 +105,7 @@ def score_one(p,cs,rs,now):
 def run():
     info=json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
     creds=Credentials.from_service_account_info(info,scopes=["https://www.googleapis.com/auth/spreadsheets"])
-    book=gspread.authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
+    book=authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
     ledger=book.worksheet("黑马预测基线");target=book.worksheet("黑马后验评估")
     if ledger.row_values(1)[:len(PRED)]!=PRED:raise RuntimeError("prediction schema mismatch")
     if target.row_values(1)[:len(OUT)]!=OUT:raise RuntimeError("evaluation schema mismatch")
