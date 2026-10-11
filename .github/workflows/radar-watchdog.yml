@@ -2,10 +2,6 @@ name: Steam Radar Watchdog
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/radar-watchdog.yml'
   schedule:
     - cron: '15 */2 * * *'
 
