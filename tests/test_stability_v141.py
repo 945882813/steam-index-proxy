@@ -39,7 +39,7 @@ class ScheduledActionsTests(unittest.TestCase):
     def test_429_is_retried_but_permission_errors_are_not(self):
         response = Response()
         response.status_code = 429
-        response._content = b'{"error":{"message":"Quota exceeded"}}'
+        response._content = b'{"error":{"code":429,"message":"Quota exceeded"}}'
         client = object.__new__(RetrySheetsHTTPClient)
         with patch("sheets_retry.gspread.HTTPClient.request",
                    side_effect=[APIError(response), {"ok": 1}]) as call, patch("sheets_retry.time.sleep") as sleep:
@@ -47,6 +47,7 @@ class ScheduledActionsTests(unittest.TestCase):
             self.assertEqual(call.call_count, 2)
             self.assertEqual(sleep.call_count, 1)
         response.status_code = 403
+        response._content = b'{"error":{"code":403,"message":"Permission denied"}}'
         with patch("sheets_retry.gspread.HTTPClient.request", side_effect=APIError(response)), patch("sheets_retry.time.sleep") as sleep:
             with self.assertRaises(APIError):
                 client.request("get", "url")
