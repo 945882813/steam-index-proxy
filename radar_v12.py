@@ -369,7 +369,7 @@ def health(ccu_only=False):
     else:
         counts = str(next((r.get("数据源状态", "") for r in reversed(ccu_runs) if parse_time(r.get("运行时间")) == newest), ""))
         match = re.search(r"VERIFIED=(\d+)", counts)
-        missing = re.search(r"MISSING=(\\d+)", counts)
+        missing = re.search(r"MISSING=(\d+)", counts)
         # Evaluate the *sampled* population; SKIPPED_UNRELEASED is not an API failure.
         n_verified = int(match.group(1)) if match else 0
         n_missing = int(missing.group(1)) if missing else 0
