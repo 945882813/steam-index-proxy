@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'radar_v12.py'
+      - 'tests/**'
       - '.github/workflows/radar-v12.yml'
   schedule:
     - cron: '20 0 * * *'
@@ -31,7 +32,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Static syntax check
-        run: python -m py_compile radar_v12.py sheet_schema.py
+        run: |
+          python -m py_compile radar_v12.py sheet_schema.py
+          python -m unittest discover -s tests -v
       - name: Discover Steam candidates (US and CN)
         id: discovery
         run: python radar_v12.py discover
