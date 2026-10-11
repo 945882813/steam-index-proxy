@@ -2,13 +2,6 @@ name: Steam Radar V1.2 - Discovery and Reviews
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'radar_v12.py'
-      - 'blackhorse_eval.py'
-      - 'tests/**'
-      - '.github/workflows/radar-v12.yml'
   schedule:
     - cron: '20 0 * * *'
 
