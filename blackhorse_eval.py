@@ -78,7 +78,7 @@ def score_one(p,cs,rs,now):
         c_after.append(q[1] if q and q[0]<=now and q[0]>initial else None)
     delta=None
     if rbase:
-        q=closest(rlist,rbase[0]+timedelta(days=7),4)
+        q=closest(rlist,rbase[0]+timedelta(days=7),12)
         if q and q[0]<=now and q[0]>initial and q[1]>=rbase[1]:
             delta=q[1]-rbase[1]
     d1,d7,d30=c_after
@@ -92,6 +92,7 @@ def score_one(p,cs,rs,now):
     if p.get("观察阶段")=="成熟参照":notes.append("成熟对照，不计入黑马命中率")
     if integer(p.get("初始CCU")) is None and cbase:notes.append("CCU锚点为预测后12小时内首次实测")
     if integer(p.get("初始评论总数")) is None and rbase:notes.append("评论锚点为预测后12小时内首次实测")
+    if delta is not None:notes.append("评论D7为按真实采样时间最近的7日近似，窗口±12小时；不是精确168小时")
     if d7 is not None and delta is not None:notes.append("商业热度与活动归因需人工复核，非自动命中")
     return [pid,appid,str(p.get("游戏名称","")),str(p["基线锁定时间"]),
             now.astimezone(CN).isoformat(timespec="seconds"),
