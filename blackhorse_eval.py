@@ -90,6 +90,8 @@ def score_one(p,cs,rs,now):
     else:status="等待首次有效采样" if elapsed<1 else "缺少可信基线"
     if elapsed>=30 and d30 is None:status="30日窗口已过，证据不足"
     notes=["初始预测不可修改；新采样仅更新后验层"]
+    if cbase:
+        notes.append("CCU比值基于API采集时间匹配（±3.25小时）；Steam Index current不提供可独立核验的精确观测时刻")
     if p.get("观察阶段")=="成熟参照":notes.append("成熟对照，不计入黑马命中率")
     if integer(p.get("初始CCU")) is None and cbase:notes.append("CCU锚点为预测后12小时内首次实测")
     if integer(p.get("初始评论总数")) is None and rbase:notes.append("评论锚点为预测后12小时内首次实测")
