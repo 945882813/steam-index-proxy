@@ -7,14 +7,12 @@ from datetime import datetime, timedelta, timezone
 import gspread
 import requests
 from google.oauth2.service_account import Credentials
+from sheet_schema import worksheet, records, header_language, HEADERS_EN
 
 CN = timezone(timedelta(hours=8))
 INDEX_BASE = "https://public-api.steamidx.com"
 OFFICIAL_BASE = "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/"
-RAW_HEADERS = [
-    "Sample_Time", "AppID", "Game_Name", "CCU", "Range", "Source",
-    "Source_URL", "Data_Quality", "Status", "Error_or_Note", "Raw_Response",
-]
+RAW_HEADERS = HEADERS_EN['CCU_Samples']
 
 
 def time_cn():
@@ -44,9 +42,7 @@ def connect():
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     book = gspread.authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
-    headers = book.worksheet("CCU_Samples").row_values(1)
-    if headers[:len(RAW_HEADERS)] != RAW_HEADERS:
-        raise RuntimeError("CCU_Samples schema mismatch: refusing to append misaligned data")
+    header_language("CCU_Samples", worksheet(book, "CCU_Samples").row_values(1))
     return book
 
 
@@ -108,10 +104,10 @@ def request_steam(appid, session):
 
 
 def targets(book):
-    games = {str(row.get("AppID", "")).strip(): row for row in book.worksheet("Games").get_all_records()}
+    games = {str(row.get("AppID", "")).strip(): row for row in records(book, "Games")}
     today = datetime.now(CN).date()
     result = {}
-    for watch in book.worksheet("Watchlist").get_all_records():
+    for watch in records(book, "Watchlist"):
         parent = str(watch.get("AppID", "")).strip()
         if not re.fullmatch(r"\d+", parent):
             continue
@@ -163,12 +159,12 @@ def run():
         ])
         counts["OK" if ok else "MISSING"] += 1
     if collected:
-        book.worksheet("CCU_Samples").append_rows(collected, value_input_option="RAW")
+        worksheet(book, "CCU_Samples").append_rows(collected, value_input_option="RAW")
     state = "OK" if counts["MISSING"] == 0 else ("PARTIAL" if counts["OK"] else "NO_VERIFIED_CCU")
-    book.worksheet("Run_Log").append_row([
+    worksheet(book, "Run_Log").append_row([
         now, "CCU Sampler", state, len(collected), "Steam Index",
         "Steam Official", f"VERIFIED={counts['OK']}; MISSING={counts['MISSING']}; SKIPPED={counts['SKIPPED']}",
-        "Data from Steam Index where Source=Steam Index", now[:10], "CCU_Samples"
+        "数据来源：Steam Index（部分使用 Steam 官方备用）", now[:10], "CCU原始采样"
     ], value_input_option="RAW")
     print(f"CCU sample: {counts}")
 
