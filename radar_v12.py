@@ -37,7 +37,19 @@ REVIEW_PARAMS = {
     "json": "1", "filter": "updated", "language": "all", "num_per_page": "1",
     "cursor": "*", "review_type": "all", "purchase_type": "all", "filter_offtopic_activity": "0",
 }
-USER_AGENT = "SteamIndieRadar/1.2 (public Steam store metadata and aggregate reviews)"
+USER_AGENT = "SteamIndieRadar/1.3 (public Steam store metadata and aggregate reviews)"
+
+def candidate_priority(source, tags, initial_screen):
+    """Only an intake *queue* priority; never independent/quality approval."""
+    if "大厂" in initial_screen:
+        return "P3-排除"
+    regions = {"US" if "US:" in source else "", "CN" if "CN:" in source else ""} - {""}
+    new_or_soon = "new_releases" in source or "coming_soon" in source
+    indie_tag = "Indie" in tags
+    if new_or_soon and indie_tag and len(regions) == 2:
+        return "P1-关注"
+    return "P2-观察"
+
 
 
 def now_cn():
@@ -164,6 +176,7 @@ def discover():
             now, appid, name, source, f"{STEAM_STORE}/app/{appid}/",
             date, kind, genres, dev, screening, "待审核",
             "Steam官方商店区域精选分区；非全平台覆盖；是否独立需审核", now,
+            "", "", candidate_priority(source, genres, screening),
         ])
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
@@ -356,8 +369,19 @@ def health(ccu_only=False):
     else:
         counts = str(next((r.get("数据源状态", "") for r in reversed(ccu_runs) if parse_time(r.get("运行时间")) == newest), ""))
         match = re.search(r"VERIFIED=(\d+)", counts)
-        if not match or int(match.group(1)) < 8:
-            anomalies["CCU_LOW_VALID"] = ("严重", "CCU可信样本", newest.isoformat(), "最新采样有效游戏少于8款或无有效数记录", "检查数据源API与监控名单")
+        missing = re.search(r"MISSING=(\\d+)", counts)
+        # Evaluate the *sampled* population; SKIPPED_UNRELEASED is not an API failure.
+        n_verified = int(match.group(1)) if match else 0
+        n_missing = int(missing.group(1)) if missing else 0
+        n_attempted = n_verified + n_missing
+        latest_ccu = next((r for r in reversed(ccu_runs) if parse_time(r.get("运行时间")) == newest), {})
+        latest_state = str(latest_ccu.get("状态", "")).strip().upper()
+        if n_verified < 8 or (n_attempted and n_verified / n_attempted < 0.75) or latest_state not in ("OK", "PARTIAL"):
+            anomalies["CCU_LOW_VALID"] = (
+                "严重", "CCU可信样本", newest.isoformat(),
+                f"最近一次有效CCU={n_verified}/{n_attempted}; 采集状态={latest_state or '未知'}",
+                "检查 Steam Index 与官方后备接口以及监控名单",
+            )
     if not ccu_only:
         for task, code in (("新作候选发现", "DISCOVERY_STALE"), ("评论累计采样与增速", "REVIEWS_STALE")):
             candidates = [parse_time(r.get("运行时间")) for r in logs if str(r.get("任务", "")) == task]
