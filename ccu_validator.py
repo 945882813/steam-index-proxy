@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import gspread
+from sheets_retry import authorize
 from google.oauth2.service_account import Credentials
 from sheet_schema import worksheet, records, header_language, output_headers, HEADERS_EN
 
@@ -38,7 +39,7 @@ def spreadsheet():
     creds = Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
-    return gspread.authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
+    return authorize(creds).open_by_key(os.environ["GOOGLE_SHEET_ID"])
 
 
 def replace_generated(worksheet_obj, canonical, rows):
