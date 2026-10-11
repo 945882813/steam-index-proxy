@@ -110,7 +110,20 @@ def run():
     now=datetime.now(timezone.utc)
     cs=collect_ccu(worksheet(book,"CCU_Validated").get_all_records())
     rs=collect_reviews(book.worksheet("评论采样").get_all_records())
-    results=[score_one(p,cs,rs,now) for p in ledger.get_all_records()]
+    locked=ledger.get_all_records()
+    for p in locked:
+        appid=str(p.get("AppID","")).strip()
+        name=str(p.get("游戏名称","")).strip()
+        certainty=str(p.get("当时置信度","")).strip()
+        receipt=str(p.get("证据链接","")).strip()
+        if not (appid.isdigit() and name and certainty in ("Low","Medium","High") and
+                receipt.startswith("https://")):
+            raise RuntimeError(f"Misaligned black-horse prediction fields: AppID={appid!r}")
+        for key in ("初始CCU","初始评论总数"):
+            raw=p.get(key,"")
+            if str(raw).strip() and integer(raw) is None:
+                raise RuntimeError(f"Invalid locked numeric field {key}: AppID={appid!r}")
+    results=[score_one(p,cs,rs,now) for p in locked]
     results=sorted([v for v in results if v],key=lambda a:(a[3],a[1]))
     if len(set(v[0] for v in results))!=len(results):raise RuntimeError("duplicate prediction id")
     if len(results)+1>target.row_count:target.add_rows(len(results)+1-target.row_count)
