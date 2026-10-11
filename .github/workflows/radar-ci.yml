@@ -1,0 +1,31 @@
+name: Steam Radar CI
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.py'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/radar-ci.yml'
+  pull_request:
+    paths:
+      - '*.py'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/radar-ci.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax check (no external credentials)
+        run: python -m compileall -q .
+      - name: Unit tests (no production calls)
+        run: python -m unittest discover -s tests -v
