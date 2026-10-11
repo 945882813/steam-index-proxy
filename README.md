@@ -1,3 +1,13 @@
+# Steam 独立游戏雷达｜采集系统
+
+长期 Google Sheet 已切换为中文工作表名称和中文表头。采集脚本通过 sheet_schema.py 兼容中文展示字段与旧英文代码字段；不要直接把中文表头改回英文。主要工作表：游戏库、重点观察、CCU原始采样、CCU可信样本、CCU增长趋势、运行日志。
+
+数据处理：GitHub Actions 每约6小时采样，先解析 Steam Index 的 data.current 并校验新鲜度，失败则使用 Steam 官方当前玩家接口。原始数据落入 CCU原始采样；仅 VERIFIED 等合法数据进入 CCU可信样本，后者支持 CCU增长趋势。RECONSTRUCTED 与 CCU历史存档不得用于正式增长计算。
+
+保留技术ID：AppID、CCU、D1/D7/D30。GitHub Secrets 不得写入 Google Sheet、仓库或对话。
+
+---
+
 # Steam Indie Radar - CCU Collector
 
 Scheduled data collection with GitHub Actions. Google Sheets is the durable data store. No Render service or credit card is required.
