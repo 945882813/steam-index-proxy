@@ -143,6 +143,15 @@ def run():
     except Exception as error:
         print(f"FAILED health: {type(error).__name__}: {str(error)[:350]}", flush=True)
         errors.append("health")
+    # A task can return after partially successful APIs; do not mark the
+    # overall workflow green unless the durable per-day contract is complete.
+    try:
+        actual = read_plan(client(), today)
+        print(f"Postflight {today}: {json.dumps(actual.__dict__, ensure_ascii=False)}", flush=True)
+        if any((actual.discovery, actual.reviews, actual.evaluation)):
+            errors.append(f"incomplete daily outputs: {actual.reason}")
+    except Exception as error:
+        errors.append(f"postflight {type(error).__name__}: {str(error)[:220]}")
     if errors:
         raise RuntimeError(f"Daily radar stages failed: {', '.join(errors)}")
 
