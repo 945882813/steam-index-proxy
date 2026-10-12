@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 concurrency:
   group: steam-radar-watchdog
@@ -26,6 +26,10 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Backstop delayed or missing morning Steam collections
+        run: python radar_morning_fallback.py
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Verify production GitHub workflow results (independent of Google Sheets)
         run: python github_run_health.py
         env:
