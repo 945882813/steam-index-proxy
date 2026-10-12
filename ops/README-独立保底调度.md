@@ -17,7 +17,7 @@
 
 5. 在 Apps Script 中选择函数 `setupRadarBackup` 并点击 **运行**，按提示授权（Google Sheets / 对外请求 / 安装定时触发器）。成功后会创建 **每 10 分钟一次**的安装式触发器，但只在北京时间 **06:30–09:05** 做联网补采检查。
 6. 选择 `inspectSteamRadarBackup` 点击运行做**只读验收**，查看「执行记录」输出；不触发生产采集。检查定时触发器面板中是否有 `steamRadarBackupTick`。
-7. 在日常采集未排队/执行时，**人工主动运行一次** `testIndependentRadarDispatchOnce`。此函数会实际调用 GitHub 的 `workflow_dispatch`，每天最多允许一次真实测试；即使当日数据完整也允许请求一次，现有 `daily_recovery.py` 应输出 `SKIP: all daily outputs exist` 并且**不增加样本行**。它会在「执行记录」打印 `GitHub HTTP 204`，表明 GitHub 接受请求，但此时还不代表执行成功。不要把 Token 填进聊天或工作表。
+7. 在日常采集未排队/执行时，**人工主动运行一次** `testIndependentRadarDispatchOnce`。此函数会实际调用 GitHub 的 `workflow_dispatch`，每天最多允许一次真实测试；即使当日已经完成发现与评论采样，也允许实际派发一次；现有 `daily_recovery.py` 应跳过已完成的发现和评论样本，不重复增加相同日期、AppID 与语言的记录。**如果有新采入的可信 CCU，黑马后验评估可以正常增量刷新，不一定整轮全 SKIP。**它会在「执行记录」打印 `GitHub HTTP 204`，表明 GitHub 接受请求，但此时还不代表执行成功。不要把 Token 填进聊天或工作表。
 8. 打开 [GitHub Actions → Steam Radar - Early Daily Collection and Recovery](https://github.com/945882813/steam-index-proxy/actions/workflows/radar-v12.yml)，找到本次 `workflow_dispatch` 运行，确认各步骤成功，并回读 Sheet：正常成功重跑不应重复添加当日候选、评论采样或黑马后验记录。**这才完成独立平台真实派发验收。**
 9. 次日早间在 06:30–09:05 观察自动触发器。需要验证**真正缺采后的自动补救**时，必须先确认确有缺口，再观察 `steamRadarBackupTick` 是否在窗口内自动派发；不要删除或改写生产样本来人为制造缺口，也不要把第 7 步主动测试冒充无人值守的缺采补救验收。
 
