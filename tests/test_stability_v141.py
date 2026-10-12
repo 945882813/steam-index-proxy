@@ -34,7 +34,18 @@ class ScheduledActionsTests(unittest.TestCase):
         self.assertEqual(assess_run("radar-v12.yml", late, self.NOW, 36)[0], "STALE")
 
     def test_initial_schedule_has_not_started(self):
-        self.assertEqual(assess_run("radar-v12.yml", {"workflow_runs": []}, self.NOW, 36)[0], "NOT_BASELINED")
+        pending_at = (self.NOW - timedelta(hours=9)).isoformat()
+        self.assertEqual(
+            assess_run("radar-v12.yml", {"workflow_runs": []}, self.NOW, 36, created_at=pending_at)[0],
+            "NOT_BASELINED",
+        )
+
+    def test_never_started_schedule_alerts_after_grace_period(self):
+        old_at = (self.NOW - timedelta(hours=40)).isoformat()
+        self.assertEqual(
+            assess_run("radar-v12.yml", {"workflow_runs": []}, self.NOW, 36, created_at=old_at)[0],
+            "STALE",
+        )
 
     def test_429_is_retried_but_permission_errors_are_not(self):
         response = Response()
