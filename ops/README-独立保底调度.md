@@ -30,6 +30,7 @@
 ## 安全、权限和常见问题
 
 - **不要**共享含令牌的脚本属性或复制包含令牌的执行日志；脚本只输出状态和日期。
+- 若原 Google Sheet 有其他共同编辑者，优先使用**仅自己可编辑的独立 Apps Script 项目**安装同一份代码（代码用 Sheet ID 打开目标表，不要求必须绑定）；不要让共享表的其他编辑者接触 GitHub Token 或脚本属性。
 - 建议把 GitHub PAT 设置有效期并定期轮换；Token 到期或权限不足会在 Apps Script 执行记录中出现 401/403。无需改 GitHub 已有的 `GOOGLE_SERVICE_ACCOUNT_JSON`、`GOOGLE_SHEET_ID` Secrets。
 - 安装式触发器以创建它的 Google 身份运行；该身份须能查看现有 Sheet。
 - 若要停用：Apps Script → 触发器，删除 `steamRadarBackupTick` 的时间触发器，然后撤销 GitHub PAT。
