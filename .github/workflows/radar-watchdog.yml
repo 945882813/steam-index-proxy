@@ -3,7 +3,9 @@ name: Steam Radar Watchdog
 on:
   workflow_dispatch:
   schedule:
-    - cron: '15 */2 * * *'
+    # Avoid GitHub scheduling hot spots; Beijing fallback checks at 06:41
+    # and 08:41 (within the 06:30-09:05 recovery window).
+    - cron: '41 */2 * * *'
 
 permissions:
   contents: read
@@ -26,6 +28,15 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Log schedule trigger and runner start
+        env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_CRON: ${{ github.event.schedule }}
+        run: |
+          echo "trigger_event=$TRIGGER_EVENT"
+          echo "trigger_cron=$TRIGGER_CRON"
+          echo "runner_observed_utc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
       - name: Backstop delayed or missing morning Steam collections
         run: python radar_morning_fallback.py
         env:
