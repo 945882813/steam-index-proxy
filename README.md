@@ -1,5 +1,14 @@
 # Steam 独立游戏雷达｜采集系统
 
+## V1.4.2 提前调度及缺失自动补采（2026-10-12）
+
+- **每日数据准备窗口**：`.github/workflows/radar-v12.yml` 不再只有北京时间08:20单次机会。现改为北京时间 **03:17 / 05:47 / 07:17** 三次错峰 `schedule`（UTC分别为19:17 / 21:47 / 23:17，UTC所属日是北京时间前一日）。仍支持人工 `workflow_dispatch`；GitHub schedule有延迟/丢失风险，不保证09:30前必完成。
+- **按事实做幂等补采**：`daily_recovery.py` 每轮先核查中文「运行日志」当天新作发现是否OK、实际「评论采样」中每个被观察AppID的all/schinese同口径成功快照和「评论增速」物化行、黑马后验中每个预测ID的更新时间是否覆盖最新可信CCU/评论采样。仅处理未成功/缺失步骤；若全部已经完成，直接退出，不重复写入表格；每次实际采集后再回读完成度，未全量完成则保留Action失败状态并留给下一次窗口补采。
+- **失败样本原位修复**：`radar_v12.py reviews` 对已有当日AppID+语言+固定口径的失败记录做批量原位覆盖，而非每次重试增加另一条相同唯一键；成功样本继续复用。自动重试不会制造假24小时增速或污染预测锁定时点。
+- **独立保底触发**：现有两小时 `radar-watchdog.yml` 在北京时间06:30–09:05实际运行时，`radar_morning_fallback.py` 会检查当天每日研究是否成功或正在运行；若没有则通过仓库 GitHub Actions `workflow_dispatch` 启动补采，成功、排队或进行中的同日日程不会重复触发，最近一小时刚失败的运行也不会立刻重试。权限仅授予现有Watchdog使用 `actions:write`，不增加ChatGPT定时任务。GitHub工作流之间采用同一并发组串行执行，最终的Google Sheet状态决定是否重采。
+- **09:30日报降级原则**：唯一启用的ChatGPT「独立游戏雷达日报」仍在09:30执行；如果Github采集由于延迟尚未到表，日报不能混同历史数据为当天新测，应注明实际可信数据时间、未完成的模块、并正常写日报而非虚构增长。Watchdog如实际运行晚于09:05则不会在当日09:30前触发保底；**不是准点交付SLA**。
+- **验收**：离线CI的测试只验证选择性补采决策、失败样本去重和Watchdog防重复派发；只有今后实际定时GitHub Action出现当天新的候选/评论/后验数据，并第二轮无重复写入时，才能认定生产闭环。
+
 ## V1.4.1 生产稳定性整改（2026-10-11）
 
 - **生产与代码测试隔离**：CCU Sampler、Steam Radar V1.2 和 Radar Watchdog 的生产 Workflows 只由 `schedule` / `workflow_dispatch` 触发；代码 `push` / `pull_request` 则由 `.github/workflows/radar-ci.yml` 离线编译与测试，不使用生产凭证或读写 Google Sheet。GitHub Actions 定时触发可能延迟。
@@ -21,7 +30,7 @@
 
 ## V1.2 新作候选、评论口碑与告警
 
-- 每天北京时间约08:20由 `.github/workflows/radar-v12.yml` 自动运行，支持手动触发；GitHub 定时触发可能延迟。
+- 每天北京时间03:17、05:47、07:17由 `.github/workflows/radar-v12.yml` 按缺失任务自动运行，支持手动触发；GitHub 定时触发可能延迟。
 - `radar_v12.py discover` 低频请求 Steam 官方 `/api/featuredcategories/` 美/中区的新发行、即将推出、畅销分区；合并AppID、最多每轮进一步核验30个详情，只增加/刷新中文「新作候选」候选池，不未经人工/日报来源核验自动转为游戏库及重点观察。这不是Steam全商店扫描。
 - `radar_v12.py reviews` 读取「重点观察」「游戏库」获取正式版或明确映射的Demo的AppID；每天采样Steam官方 `/appreviews/{appid}`，固定 `filter=updated; language=all/schinese; review_type=all; purchase_type=all; filter_offtopic_activity=0`；中文「评论采样」按日期+AppID+语言+口径去重。
 - 只有同AppID、口径、实测时间可比才计算评论24小时增量及7日/30日基准。首次样本不制造增长指标；简中与非简中好评率可在相同采样日用全语言减简中推导。生成中文「评论增速」并兼容当日旧行的更新。
