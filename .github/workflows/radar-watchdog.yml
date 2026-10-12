@@ -31,6 +31,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Verify production GitHub workflow results (independent of Google Sheets)
+        if: ${{ always() }}
         run: python github_run_health.py
         env:
           GH_TOKEN: ${{ github.token }}
