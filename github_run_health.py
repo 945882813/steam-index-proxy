@@ -20,7 +20,11 @@ def assess_run(workflow, payload, now, max_age_hours, created_at=None):
     runs = payload.get("workflow_runs")
     if not isinstance(runs, list):
         return "UNKNOWN", "Malformed GitHub Actions response"
-    scheduled = [r for r in runs if r.get("event") == "schedule"]
+    # The daily watchdog can deliberately dispatch a recovery run; it
+    # counts as production delivery. Never treat failed development push
+    # events as production evidence.
+    eligible_events = {"schedule", "workflow_dispatch"} if workflow == "radar-v12.yml" else {"schedule"}
+    scheduled = [r for r in runs if r.get("event") in eligible_events]
     if not scheduled:
         # Give a newly configured schedule time to start, but do NOT silently
         # ignore a workflow which never executes its first scheduled run.
@@ -66,7 +70,7 @@ def run():
     for workflow, max_age_hours in WORKFLOWS.items():
         response = s.get(
             f"{API}/repos/{repo}/actions/workflows/{workflow}/runs",
-            params={"event": "schedule", "per_page": 5},
+            params={"per_page": 15},
             timeout=20,
         )
         response.raise_for_status()
