@@ -16,13 +16,24 @@ API = "https://api.github.com"
 DEFAULT_REPOSITORY = "945882813/steam-index-proxy"
 
 
-def assess_run(workflow, payload, now, max_age_hours):
+def assess_run(workflow, payload, now, max_age_hours, created_at=None):
     runs = payload.get("workflow_runs")
     if not isinstance(runs, list):
         return "UNKNOWN", "Malformed GitHub Actions response"
     scheduled = [r for r in runs if r.get("event") == "schedule"]
     if not scheduled:
-        # A newly configured schedule is not an automatic failure.
+        # Give a newly configured schedule time to start, but do NOT silently
+        # ignore a workflow which never executes its first scheduled run.
+        if created_at:
+            try:
+                born = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+                if born.tzinfo is None:
+                    raise ValueError("Missing workflow timezone")
+                age = (now - born).total_seconds() / 3600
+                if age > max_age_hours:
+                    return "STALE", f"{workflow}: no scheduled runs {age:.1f}h after workflow creation"
+            except (TypeError, ValueError):
+                return "UNKNOWN", f"{workflow}: invalid workflow creation time"
         return "NOT_BASELINED", f"{workflow}: first scheduled run pending"
     latest = max(scheduled, key=lambda r: r.get("created_at") or "")
     try:
@@ -59,7 +70,15 @@ def run():
             timeout=20,
         )
         response.raise_for_status()
-        status, info = assess_run(workflow, response.json(), now, max_age_hours)
+        meta = s.get(
+            f"{API}/repos/{repo}/actions/workflows/{workflow}",
+            timeout=20,
+        )
+        meta.raise_for_status()
+        status, info = assess_run(
+            workflow, response.json(), now, max_age_hours,
+            created_at=meta.json().get("created_at"),
+        )
         print(f"{status}: {info}")
         if status in ("UNKNOWN", "STALE", "FAILED"):
             bad.append(info)
