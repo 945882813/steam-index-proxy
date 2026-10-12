@@ -1,56 +1,41 @@
-name: Steam Radar V1.2 - Discovery and Reviews
+name: Steam Radar - Early Daily Collection and Recovery
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '20 0 * * *'
+    # UTC => Beijing 03:17, 05:47 and 07:17 (each on the next day).
+    # GitHub scheduled runs are best effort. Each slot checks Sheets and only
+    # recovers missing tasks. Subsequent slots should normally be no-ops.
+    - cron: '17 19 * * *'
+    - cron: '47 21 * * *'
+    - cron: '17 23 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: steam-radar-v12
+  group: steam-radar-daily-collection
   cancel-in-progress: false
 
 jobs:
-  discover-and-reviews:
+  collect-or-recover:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Static syntax check
+      - name: Offline syntax and tests
         run: |
-          python -m py_compile radar_v12.py sheet_schema.py blackhorse_eval.py
+          python -m py_compile radar_v12.py blackhorse_eval.py daily_recovery.py
           python -m unittest discover -s tests -v
-      - name: Discover Steam candidates (US and CN)
-        id: discovery
-        run: python radar_v12.py discover
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
-          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
-      - name: Sample comparable Steam reviews and calculate velocity
-        id: reviews
-        if: ${{ always() }}
-        run: python radar_v12.py reviews
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
-          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
-      - name: Evaluate locked blackhorse predictions
-        if: ${{ always() }}
-        run: python blackhorse_eval.py
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
-          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
-      - name: Health check and persist active alerts
-        if: ${{ always() }}
-        run: python radar_v12.py health
+      - name: Selectively collect only missing daily Steam data
+        run: python daily_recovery.py
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
           GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
