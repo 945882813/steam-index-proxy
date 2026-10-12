@@ -76,7 +76,7 @@ class DailyRecoveryTests(unittest.TestCase):
 
     def test_no_data_today_recovers_everything(self):
         p = plan(logs=[log(when="2026-10-11T23:23:00+08:00")],
-                 samples=[],velocity=[],outcomes=[outcome("2026-10-11T23:30:00+08:00")])
+                 samples=[],velocity=[],outcomes=outcome("2026-10-11T23:30:00+08:00"))
         self.assertTrue(p.discovery)
         self.assertTrue(p.reviews)
         self.assertTrue(p.evaluation)
