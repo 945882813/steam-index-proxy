@@ -97,7 +97,8 @@ function steamRadarBackupTick() {
 /**
  * 一次性真实联通性验收（需要用户在 Apps Script 中主动点击运行）。
  * 不受 06:30-09:05 时间窗口影响；触发已有幂等 daily_recovery.py。
- * 今日数据完整时，GitHub 仍会产生 workflow_dispatch，但生产采集应为 SKIP。
+ * 如当天候选和评论已完整，这两类采样应被跳过；若有更新的可信CCU，
+ * 则黑马后验仍可能正常重算，这是允许的增量写入。
  * 防止重复测试：同一个北京时间自然日最多主动派发一次。
  */
 function testIndependentRadarDispatchOnce() {
