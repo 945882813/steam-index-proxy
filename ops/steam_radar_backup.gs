@@ -94,6 +94,44 @@ function steamRadarBackupTick() {
   }
 }
 
+/**
+ * 一次性真实联通性验收（需要用户在 Apps Script 中主动点击运行）。
+ * 不受 06:30-09:05 时间窗口影响；触发已有幂等 daily_recovery.py。
+ * 今日数据完整时，GitHub 仍会产生 workflow_dispatch，但生产采集应为 SKIP。
+ * 防止重复测试：同一个北京时间自然日最多主动派发一次。
+ */
+function testIndependentRadarDispatchOnce() {
+  const props = PropertiesService.getScriptProperties();
+  const localDay = Utilities.formatDate(new Date(), RADAR_BACKUP.tz, 'yyyy-MM-dd');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) throw new Error('另一轮保底调度正在运行，请核对执行记录');
+  try {
+    ['STEAM_RADAR_SHEET_ID', 'STEAM_RADAR_GITHUB_TOKEN', 'STEAM_RADAR_REPO'].forEach(function(key) {
+      if (!props.getProperty(key)) throw new Error('脚本属性缺失：' + key);
+    });
+    if (props.getProperty('RADAR_BACKUP_TEST_DISPATCH_DAY') === localDay) {
+      throw new Error('今天已经执行过一次真实派发验收；请到 GitHub Actions 查看该次运行');
+    }
+    const status = steamRadarGithubRuns_(props, localDay);
+    if (status.running) throw new Error('GitHub 每日采集正在运行或排队，本次不再派发');
+    const repo = props.getProperty('STEAM_RADAR_REPO');
+    const url = 'https://api.github.com/repos/' + repo +
+      '/actions/workflows/' + RADAR_BACKUP.workflow + '/dispatches';
+    const result = steamRadarRequest_(props, url, 'post', {ref: 'main'});
+    if (result.status !== 204) {
+      throw new Error('独立派发未成功，GitHub HTTP ' + result.status +
+        '；检查 Token 的 Actions 权限和仓库名称');
+    }
+    props.setProperty('RADAR_BACKUP_TEST_DISPATCH_DAY', localDay);
+    // 测试同样计入正常冷却，避免随后的定时巡检紧接着发起第二次。
+    props.setProperty('RADAR_BACKUP_LAST_DISPATCH_MS', String(Date.now()));
+    console.log('独立派发验收：GitHub HTTP 204；工作流 radar-v12.yml 已接受触发请求。');
+    console.log('仍需在 GitHub Actions 验证 workflow_dispatch 执行成功，及 Google Sheet 没有重复写入。');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function steamRadarTodayComplete_(props, today) {
   const book = SpreadsheetApp.openById(props.getProperty('STEAM_RADAR_SHEET_ID'));
   const sheet = book.getSheetByName('运行日志');
