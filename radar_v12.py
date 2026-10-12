@@ -322,7 +322,7 @@ def reviews():
     for appid, name in targets:
         existing_row = existing_velocity.get((today, appid))
         glob = by_app[appid].get("all")
-        if not glob or glob[2] == 0:
+        if not glob:
             continue
         history = histories[appid]
         prev1 = prior_sample(history, now_dt, 1, "累计好评", REVIEW_BASIS)
@@ -348,7 +348,9 @@ def reviews():
         noncn_total = (glob[2] - cn[2]) if cn else 0
         noncn_positive = (glob[0] - cn[0]) if cn else 0
         gap = (100 * noncn_positive / noncn_total - cn_rate) if cn_rate is not None and noncn_total > 0 and noncn_positive >= 0 else None
-        status = "可比D1" if daily_ok else ("累计评论下降，需复核" if "NEGATIVE" in deltas else "历史不足")
+        status = ("累计评论0，未形成可比增速" if glob[2] == 0 else
+                  "可比D1" if daily_ok else
+                  "累计评论下降，需复核" if "NEGATIVE" in deltas else "历史不足")
         source = f"{STEAM_STORE}/appreviews/{appid}?json=1&filter=updated&purchase_type=all&review_type=all&filter_offtopic_activity=0"
         derived_row = [
             now, appid, name,
