@@ -260,6 +260,13 @@ def reviews():
     if velocity_headers[14:18] != VELOCITY_EXTENSION:
         raise RuntimeError("评论增速 extensions were not applied")
     existing = raw_ws.get_all_records()
+    # Keep a single durable row per daily AppID + language + filter, including
+    # retrying previously failed samples after a skipped/delayed schedule.
+    existing_by_key = {
+        str(row.get("样本唯一键", "")): index + 2
+        for index, row in enumerate(existing)
+        if str(row.get("样本唯一键", "")).strip()
+    }
     today = datetime.now(CN).date().isoformat()
     now = now_cn()
     now_dt = parse_time(now)
@@ -269,6 +276,7 @@ def reviews():
     s = session()
     targets = review_targets(book)
     output = []
+    repairs = []
     by_app = defaultdict(dict)
     failures = []
     successful = 0
@@ -293,8 +301,14 @@ def reviews():
                        f"{STEAM_STORE}/appreviews/{appid}", "OK", "", unique]
                 by_app[appid][lang] = result
                 successful += 1
-            output.append(row)
+            prior_row = existing_by_key.get(unique)
+            if prior_row is not None:
+                repairs.append({"range": f"A{prior_row}:M{prior_row}", "values": [row]})
+            else:
+                output.append(row)
             histories[appid].append(dict(zip(REVIEW_HEADERS, row)))
+    if repairs:
+        raw_ws.batch_update(repairs, value_input_option="RAW")
     if output:
         raw_ws.append_rows(output, value_input_option="RAW")
     raw_velocity = velocity_ws.get_all_records()
@@ -374,8 +388,8 @@ def reviews():
     if derived:
         velocity_ws.append_rows(derived, value_input_option="RAW")
     state = "OK" if not failures else ("PARTIAL" if successful else "FAILED")
-    log(book, "评论累计采样与增速", state, len(output), "Steam Official appreviews",
-        "all + schinese; filter=updated", f"target={len(targets)}; sampled_new={successful}; reused_valid={reused}; velocity_new={len(derived)}; velocity_refreshed={refreshed}; failures={';'.join(failures[:8])}")
+    log(book, "评论累计采样与增速", state, len(output) + len(repairs), "Steam Official appreviews",
+        "all + schinese; filter=updated", f"target={len(targets)}; sampled_new={successful}; repaired={len(repairs)}; reused_valid={reused}; velocity_new={len(derived)}; velocity_refreshed={refreshed}; failures={';'.join(failures[:8])}")
     print(f"Review app targets={len(targets)} new_samples={len(output)} reused_valid={reused} velocity_new={len(derived)} velocity_refreshed={refreshed} failures={len(failures)}")
     if successful + reused == 0:
         raise RuntimeError("No valid or cached Steam review summaries")
