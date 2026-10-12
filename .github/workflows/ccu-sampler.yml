@@ -3,7 +3,10 @@ name: CCU Sampler
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'
+    # Six-hour cadence, shifted away from the UTC top of hour to avoid
+    # GitHub Actions' documented scheduled-run peak load.
+    # Beijing times: 02:23, 08:23, 14:23, 20:23.
+    - cron: '23 */6 * * *'
 
 concurrency:
   group: steam-indie-ccu-collection
@@ -23,6 +26,15 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Log schedule trigger and runner start
+        env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_CRON: ${{ github.event.schedule }}
+        run: |
+          echo "trigger_event=$TRIGGER_EVENT"
+          echo "trigger_cron=$TRIGGER_CRON"
+          echo "runner_observed_utc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
       - name: Collect CCU samples
         run: python ccu_sampler.py
