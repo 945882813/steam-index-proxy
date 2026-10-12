@@ -6,6 +6,7 @@ on:
       - '*.py'
       - 'tests/**'
       - 'requirements.txt'
+      - 'ops/*.gs'
       - '.github/workflows/radar-ci.yml'
   pull_request:
     paths:
@@ -29,3 +30,5 @@ jobs:
         run: python -m compileall -q .
       - name: Unit tests (no production calls)
         run: python -m unittest discover -s tests -v
+      - name: Independent Apps Script backup JavaScript syntax
+        run: node --check < ops/steam_radar_backup.gs
