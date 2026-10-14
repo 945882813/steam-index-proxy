@@ -32,3 +32,5 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Independent Apps Script backup JavaScript syntax
         run: node --check < ops/steam_radar_backup.gs
+      - name: Independent Apps Script CCU fallback scenario tests
+        run: node tests/test_steam_radar_backup.js
