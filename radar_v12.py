@@ -252,6 +252,19 @@ def prior_sample(history, when, day, value_key, basis):
     return min(opts, key=lambda x: (x[0], -x[1].timestamp()))[2] if opts else None
 
 
+
+def review_growth_status(total, daily_ok, deltas, previous_total):
+    """Explain a reclassified Steam review without claiming total shrinkage."""
+    if total == 0:
+        return "累计评论0，未形成可比增速"
+    if daily_ok:
+        return "可比D1"
+    if "NEGATIVE" in deltas:
+        return ("累计评论下降，需复核" if previous_total is not None and
+                total < previous_total else "评论分项回落，需复核")
+    return "历史不足"
+
+
 def reviews():
     book = client()
     raw_ws, velocity_ws = book.worksheet("评论采样"), worksheet(book, "Review_Velocity")
@@ -352,16 +365,7 @@ def reviews():
         # component is NOT proof that the cumulative total decreased.
         current_total = glob[2]
         previous_total = to_int(prev1.get("累计评论")) if prev1 else None
-        negative_component = "NEGATIVE" in deltas
-        status = (
-            "累计评论0，未形成可比增速" if current_total == 0 else
-            "可比D1" if daily_ok else
-            "累计评论下降，需复核" if (
-                negative_component and previous_total is not None and current_total < previous_total
-            ) else
-            "评论分项回落，需复核" if negative_component else
-            "历史不足"
-        )
+        status = review_growth_status(current_total, daily_ok, deltas, previous_total)
         source = f"{STEAM_STORE}/appreviews/{appid}?json=1&filter=updated&purchase_type=all&review_type=all&filter_offtopic_activity=0"
         derived_row = [
             now, appid, name,
