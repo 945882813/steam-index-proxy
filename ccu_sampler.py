@@ -140,8 +140,38 @@ def targets(book):
     return list(result.values())
 
 
+def recent_complete_batch(rows, now, minimum_apps=12, cooldown_hours=3):
+    """Avoid duplicate CCU writes when a delayed cron meets a watchdog dispatch.
+
+    A valid *batch*, not just a single recent row, must exist. Failed/partial
+    batches remain eligible for recovery. Do not backdate late observations.
+    """
+    batches = {}
+    for row in rows:
+        if str(row.get("Status", "")).upper() != "OK":
+            continue
+        if str(row.get("Data_Quality", "")).upper() not in ("VERIFIED", "FRESH_FALLBACK"):
+            continue
+        stamp = parse_time(row.get("Sample_Time"))
+        if stamp is None or stamp.tzinfo is None:
+            continue
+        seconds = (now - stamp.astimezone(timezone.utc)).total_seconds()
+        if not -120 <= seconds < cooldown_hours * 3600:
+            continue
+        key = stamp.astimezone(timezone.utc).isoformat(timespec="seconds")
+        appid = str(row.get("AppID", "")).strip()
+        if appid.isdigit():
+            batches.setdefault(key, set()).add(appid)
+    return any(len(ids) >= minimum_apps for ids in batches.values())
+
+
 def run():
     book = connect()
+    now_utc = datetime.now(timezone.utc)
+    if recent_complete_batch(records(book, "CCU_Samples"), now_utc):
+        print("SKIP CCU: a recent complete verified batch already exists; avoid duplicate sampling", flush=True)
+        return
+
     session = requests.Session()
     now = time_cn()
     collected = []
