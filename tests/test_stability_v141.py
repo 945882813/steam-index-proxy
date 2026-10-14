@@ -27,6 +27,20 @@ class ScheduledActionsTests(unittest.TestCase):
         ]}
         self.assertEqual(assess_run("ccu-sampler.yml", payload, self.NOW, 9)[0], "OK")
 
+    def test_successful_ccu_fallback_dispatch_counts_as_production(self):
+        payload = {"workflow_runs": [
+            self.run_row(hours=10, event="schedule", conclusion="success"),
+            self.run_row(hours=1, event="workflow_dispatch", conclusion="success"),
+        ]}
+        self.assertEqual(assess_run("ccu-sampler.yml", payload, self.NOW, 9)[0], "OK")
+
+    def test_failed_ccu_fallback_does_not_look_green(self):
+        payload = {"workflow_runs": [
+            self.run_row(hours=10, event="schedule", conclusion="success"),
+            self.run_row(hours=1, event="workflow_dispatch", conclusion="failure"),
+        ]}
+        self.assertEqual(assess_run("ccu-sampler.yml", payload, self.NOW, 9)[0], "FAILED")
+
     def test_failure_and_expired_scheduled_run(self):
         fail = {"workflow_runs": [self.run_row(conclusion="failure")]}
         self.assertEqual(assess_run("radar-v12.yml", fail, self.NOW, 36)[0], "FAILED")
