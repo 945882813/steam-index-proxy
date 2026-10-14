@@ -23,6 +23,7 @@ class ScheduleContractTests(unittest.TestCase):
         source, crons = schedule_crons("radar-watchdog.yml")
         self.assertEqual(crons, ["41 */2 * * *"])
         self.assertIn("radar_morning_fallback.py", source)
+        self.assertIn("ccu_schedule_health.py --dispatch-if-stale", source)
         self.assertIn("workflow_dispatch:", source)
         self.assertNotIn("\n  push:", source)
 
