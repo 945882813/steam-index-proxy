@@ -41,6 +41,14 @@ jobs:
         run: python radar_morning_fallback.py
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Audit CCU schedule slots and backstop stale verified samples
+        if: ${{ always() }}
+        run: python ccu_schedule_health.py --dispatch-if-stale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
+
       - name: Verify production GitHub workflow results (independent of Google Sheets)
         if: ${{ always() }}
         run: python github_run_health.py
