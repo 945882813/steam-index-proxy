@@ -59,9 +59,17 @@ def replace_generated(worksheet_obj, canonical, rows):
         worksheet_obj.batch_clear([f"A{next_row}:L{worksheet_obj.row_count}"])
 
 
-def closest(history, latest_at, days):
+def closest(history, latest_at, days, source=None):
+    """Return a time-aligned historical CCU, optionally enforcing source parity.
+
+    Raw history entries are (timestamp_utc, ccu, verified_row).
+    Mixing Steam Index and Steam Official silently produces misleading D1s.
+    """
     desired = latest_at - timedelta(days=days)
-    earlier = [rec for rec in history if rec[0] < latest_at]
+    earlier = [
+        rec for rec in history
+        if rec[0] < latest_at and (source is None or rec[2][4] == source)
+    ]
     if not earlier:
         return None
     candidate = min(earlier, key=lambda rec: abs((rec[0] - desired).total_seconds()))
@@ -116,8 +124,19 @@ def main():
         points.sort(key=lambda x: x[0])
         latest = points[-1]
         instant, now_ccu, latest_row = latest
-        p1, p7, p30 = [closest(points, instant, day) for day in (1, 7, 30)]
-        status = "D30_READY" if p30 is not None else "D7_READY" if p7 is not None else "D1_READY" if p1 is not None else "CURRENT_ONLY"
+        latest_source = latest_row[4]
+        p1, p7, p30 = [
+            closest(points, instant, day, source=latest_source)
+            for day in (1, 7, 30)
+        ]
+        mixed_source_d1 = p1 is None and closest(points, instant, 1) is not None
+        status = (
+            "D30_READY" if p30 is not None else
+            "D7_READY" if p7 is not None else
+            "D1_READY" if p1 is not None else
+            "D1_SOURCE_MISMATCH" if mixed_source_d1 else
+            "CURRENT_ONLY"
+        )
         trends.append([
             latest_row[0], appid, latest_row[2], now_ccu, p1 if p1 is not None else "",
             change(now_ccu, p1), p7 if p7 is not None else "",
