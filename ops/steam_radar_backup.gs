@@ -6,8 +6,9 @@
  * 私密令牌只放 Apps Script → 项目设置 → 脚本属性，切勿填到 Sheet 单元格。
  *
  * 运行 setupRadarBackup() 一次创建 10 分钟时间触发器。
- * 在北京时间 06:30-09:05 内，若今日三项每日采集尚未完成且 GitHub
- * 没有在排队/执行的每日采集，则最多每 90 分钟调度一次原有工作流。
+ * 每日研究只在北京时间 06:30-09:05 内兜底；CCU每30分钟检测一次，
+ * 若上轮完整可信样本超过8小时仍未更新且无GitHub任务在运行，则派发
+ * 新的实时CCU采样，绝不假装回填已错过时隙的历史观察值。
  * 时间触发器不保证绝对准时，也不会修改原 Google Sheet 的业务数据。
  */
 const RADAR_BACKUP = Object.freeze({
@@ -48,6 +49,14 @@ function inspectSteamRadarBackup() {
 }
 
 function steamRadarBackupTick() {
+  // Also protect the six-hour CCU series independently of GitHub cron.
+  // CCU audit is throttled to once per 30 minutes; an error must not block
+  // the early-morning daily research fallback.
+  try {
+    steamRadarCCUBackupTick_();
+  } catch (error) {
+    console.error('CCU独立兜底检查失败：' + String(error).slice(0, 240));
+  }
   const localTime = Utilities.formatDate(new Date(), RADAR_BACKUP.tz, 'HH:mm');
   const hhmm = localTime.split(':').map(Number);
   const minute = hhmm[0] * 60 + hhmm[1];
@@ -131,6 +140,106 @@ function testIndependentRadarDispatchOnce() {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/**
+ * External-platform CCU backstop: every 30min assess the last full verified
+ * batch, dispatch only if more than eight hours stale. It NEVER backfills the
+ * missed historical slot's timestamps. GitHub concurrency and Python's
+ * three-hour full-batch guard protect against overlapping submissions.
+ */
+function steamRadarCCUBackupTick_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const now = Date.now();
+    const lastCheck = Number(props.getProperty('RADAR_CCU_LAST_CHECK_MS') || '0');
+    if (lastCheck > 0 && now >= lastCheck && now - lastCheck < 30 * 60000) return;
+    props.setProperty('RADAR_CCU_LAST_CHECK_MS', String(now));
+
+    const last = steamRadarLatestVerifiedCCU_(props);
+    if (last !== null && now - last < 8 * 3600000) {
+      console.log('CCU独立保底：可信批次距离现在不足8小时，不触发');
+      return;
+    }
+
+    const lastDispatch = Number(props.getProperty('RADAR_CCU_LAST_DISPATCH_MS') || '0');
+    if (lastDispatch > 0 && now >= lastDispatch && now - lastDispatch < 3 * 3600000) {
+      console.log('CCU独立保底：距离最近一次派发不足3小时');
+      return;
+    }
+
+    const gh = steamRadarRequest_(props,
+      'https://api.github.com/repos/' + props.getProperty('STEAM_RADAR_REPO') +
+      '/actions/workflows/ccu-sampler.yml/runs?per_page=30', 'get');
+    if (gh.status !== 200) {
+      throw new Error('读取CCU Actions状态失败 HTTP ' + gh.status);
+    }
+    const runs = JSON.parse(gh.body).workflow_runs || [];
+    for (const run of runs) {
+      if (['schedule', 'workflow_dispatch'].indexOf(run.event) === -1) continue;
+      const ms = new Date(run.created_at).getTime();
+      if (['queued', 'in_progress', 'waiting', 'pending', 'requested'].indexOf(run.status) >= 0) {
+        console.log('CCU独立保底：GitHub已存在排队/执行任务');
+        return;
+      }
+      if (Number.isFinite(ms) && now >= ms) {
+        if (run.event === 'workflow_dispatch' && now - ms < 3 * 3600000) return;
+        if (run.event === 'schedule' && now - ms < 45 * 60000) return;
+      }
+    }
+    const response = steamRadarRequest_(props,
+      'https://api.github.com/repos/' + props.getProperty('STEAM_RADAR_REPO') +
+      '/actions/workflows/ccu-sampler.yml/dispatches', 'post', {ref: 'main'});
+    if (response.status !== 204) {
+      throw new Error('CCU workflow_dispatch 返回 HTTP ' + response.status);
+    }
+    props.setProperty('RADAR_CCU_LAST_DISPATCH_MS', String(now));
+    console.log('CCU独立保底已派发：真实采集执行需进一步核对GitHub和Sheet');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function steamRadarLatestVerifiedCCU_(props) {
+  const sheet = SpreadsheetApp.openById(props.getProperty('STEAM_RADAR_SHEET_ID'))
+    .getSheetByName('CCU原始采样');
+  if (!sheet) throw new Error('缺少「CCU原始采样」工作表');
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const start = Math.max(2, lastRow - 499);
+  const rows = sheet.getRange(start, 1, lastRow - start + 1, 9).getValues();
+  const groups = {};
+  rows.forEach(function(row) {
+    if (String(row[8]).trim().toUpperCase() !== 'OK') return;
+    if (['VERIFIED', 'FRESH_FALLBACK'].indexOf(
+      String(row[7]).trim().toUpperCase()) === -1) return;
+    const appid = String(row[1]).trim();
+    if (!/^\d+$/.test(appid)) return;
+    const ms = row[0] instanceof Date ? row[0].getTime() : new Date(row[0]).getTime();
+    if (!Number.isFinite(ms)) return;
+    if (!groups[ms]) groups[ms] = {};
+    groups[ms][appid] = true;
+  });
+  const complete = Object.keys(groups)
+    .map(Number)
+    .filter(ms => Object.keys(groups[ms]).length >= 12);
+  return complete.length ? Math.max.apply(null, complete) : null;
+}
+
+function inspectSteamCCUBackup() {
+  // Non-dispatching independent operational check.
+  const props = PropertiesService.getScriptProperties();
+  const t = steamRadarLatestVerifiedCCU_(props);
+  const result = {
+    latest_complete_batch: t === null ? null : new Date(t).toISOString(),
+    age_hours: t === null ? null : Math.round((Date.now() - t) / 360000) / 10,
+    fallback_stale_threshold_hours: 8
+  };
+  console.log(JSON.stringify(result));
+  return result;
 }
 
 function steamRadarTodayComplete_(props, today) {
