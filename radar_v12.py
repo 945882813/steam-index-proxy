@@ -348,9 +348,20 @@ def reviews():
         noncn_total = (glob[2] - cn[2]) if cn else 0
         noncn_positive = (glob[0] - cn[0]) if cn else 0
         gap = (100 * noncn_positive / noncn_total - cn_rate) if cn_rate is not None and noncn_total > 0 and noncn_positive >= 0 else None
-        status = ("累计评论0，未形成可比增速" if glob[2] == 0 else
-                  "可比D1" if daily_ok else
-                  "累计评论下降，需复核" if "NEGATIVE" in deltas else "历史不足")
+        # Steam can reclassify/remove individual reviews. A negative
+        # component is NOT proof that the cumulative total decreased.
+        current_total = glob[2]
+        previous_total = to_int(prev1.get("累计评论")) if prev1 else None
+        negative_component = "NEGATIVE" in deltas
+        status = (
+            "累计评论0，未形成可比增速" if current_total == 0 else
+            "可比D1" if daily_ok else
+            "累计评论下降，需复核" if (
+                negative_component and previous_total is not None and current_total < previous_total
+            ) else
+            "评论分项回落，需复核" if negative_component else
+            "历史不足"
+        )
         source = f"{STEAM_STORE}/appreviews/{appid}?json=1&filter=updated&purchase_type=all&review_type=all&filter_offtopic_activity=0"
         derived_row = [
             now, appid, name,
