@@ -1,7 +1,7 @@
-"""Independently check scheduled GitHub Actions health without Google Sheets.
+"""Independently check GitHub Actions production health without Google Sheets.
 
-Ignore failed development push runs: CI already handles those. Only scheduled
-production runs are relevant to freshness and delivery.
+Ignore failed development push runs: CI already handles those. Scheduled runs
+and intentional, authenticated fallback dispatches are production evidence.
 """
 import os
 import sys
@@ -20,10 +20,9 @@ def assess_run(workflow, payload, now, max_age_hours, created_at=None):
     runs = payload.get("workflow_runs")
     if not isinstance(runs, list):
         return "UNKNOWN", "Malformed GitHub Actions response"
-    # The daily watchdog can deliberately dispatch a recovery run; it
-    # counts as production delivery. Never treat failed development push
-    # events as production evidence.
-    eligible_events = {"schedule", "workflow_dispatch"} if workflow == "radar-v12.yml" else {"schedule"}
+    # Both the daily radar and CCU sampler can be dispatched by fallbacks.
+    # Neither push CI nor a missing/failed run counts as production success.
+    eligible_events = {"schedule", "workflow_dispatch"}
     scheduled = [r for r in runs if r.get("event") in eligible_events]
     if not scheduled:
         # Give a newly configured schedule time to start, but do NOT silently
