@@ -29,7 +29,7 @@ POST_HEADERS = [
     "D30后CCU", "D30_CCU变化率", "D30评论净增", "D30证据状态", "D30门槛判断",
     "活动归因状态", "证据说明", "基线指纹",
 ]
- POLICY_VERSION = "PF-2026-10-V1"
+POLICY_VERSION = "PF-2026-10-V1"
 POLICIES = {
     POLICY_VERSION: {
         "review_language": "all",
