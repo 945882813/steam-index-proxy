@@ -290,9 +290,95 @@ def sheets_rows(ledger):
     return from_sheet(values[1:])
 
 
+def _padded_output(values):
+    """Normalize Google's trimmed RAW rows; preserve actual column positions."""
+    if len(values) > len(POST_HEADERS):
+        raise RuntimeError("prospective posterior has unexpected extra columns")
+    return list(values) + [""] * (len(POST_HEADERS) - len(values))
+
+
+def _business_values(values):
+    """Evaluation timestamp is metadata, not new research evidence."""
+    return tuple(str(v) if v is not None else ""
+                 for i, v in enumerate(values) if i != 2)
+
+
+def refresh_posterior(book, now=None):
+    """Incrementally update ONLY changed derived rows; never fetch Steam APIs.
+
+    The parent daily job can fail upstream. This independently checks evidence
+    already persisted in the same spreadsheet and makes a no-op cheap.
+    """
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone aware")
+    ledger, posterior = read_sheets(book)
+    locked = sheets_rows(ledger)  # checks hashes, rule snapshots and duplicate locks
+    stored = posterior.get_all_values()[1:]
+    expected_ids = {str(row[0]) for row in locked}
+    indexed = {}
+    for sheet_row, raw in enumerate(stored, start=2):
+        row = _padded_output(raw)
+        pid = str(row[0]).strip()
+        if not pid or pid not in expected_ids or pid in indexed:
+            raise RuntimeError("orphan, duplicate or blank prospective posterior ID: refusing writes")
+        baseline = next(item for item in locked if item[0] == pid)
+        if str(row[1]) != str(baseline[2]) or str(row[15]) != str(baseline[-1]):
+            raise RuntimeError("prospective posterior provenance mismatch: refusing writes")
+        indexed[pid] = (sheet_row, row)
+    if not locked:
+        print("PROSPECTIVE_REFRESH_NOOP: no registered forecasts; no writes", flush=True)
+        return {"changed": 0, "added": 0, "unchanged": 0}
+    # Only existing Sheet evidence; no discovery, scraping, or new review API calls.
+    cs = collect_ccu(book.worksheet("CCU可信样本").get_all_records(), with_source=True)
+    rs = collect_reviews(book.worksheet("评论采样").get_all_records())
+    changed, added, unchanged = [], [], 0
+    for forecast in locked:
+        proposed = evaluate_row(forecast, cs, rs, now)
+        pid = forecast[0]
+        old_info = indexed.get(pid)
+        if old_info is None:
+            added.append(proposed)
+            continue
+        sheet_row, old = old_info
+        # Human causal attribution is not a computer-generated field.
+        if str(old[13]).strip():
+            proposed[13] = old[13]
+        if _business_values(proposed) == _business_values(old):
+            unchanged += 1
+        else:
+            changed.append((sheet_row, proposed))
+    if changed:
+        posterior.batch_update([
+            {"range": f"A{row}:P{row}", "values": [value]}
+            for row, value in changed
+        ], value_input_option="RAW")
+    if added:
+        posterior.append_rows(added, value_input_option="RAW")
+    if changed or added:
+        persisted = posterior.get_all_values()[1:]
+        actual = {}
+        for raw in persisted:
+            row = _padded_output(raw)
+            if not row[0] or row[0] in actual:
+                raise RuntimeError("prospective posterior readback duplicate or blank ID")
+            actual[row[0]] = row
+        for _, proposed in changed:
+            if proposed[0] not in actual or _business_values(actual[proposed[0]]) != _business_values(proposed):
+                raise RuntimeError(f"prospective posterior write readback mismatch: {proposed[0]}")
+        for proposed in added:
+            if proposed[0] not in actual or _business_values(actual[proposed[0]]) != _business_values(proposed):
+                raise RuntimeError(f"prospective posterior append readback mismatch: {proposed[0]}")
+        if set(actual) != expected_ids:
+            raise RuntimeError("prospective posterior count/ID mismatch after update")
+    print(f"PROSPECTIVE_REFRESH changed={len(changed)} added={len(added)} unchanged={unchanged}; "
+          "real Sheet evidence only; no forecast ledger writes", flush=True)
+    return {"changed": len(changed), "added": len(added), "unchanged": unchanged}
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("audit", "register", "evaluate"))
+    parser.add_argument("command", choices=("audit", "register", "evaluate", "refresh"))
     parser.add_argument("--draft-file", help="reviewed UTF-8 JSON forecast draft, register only")
     args = parser.parse_args()
     if args.command == "register" and not args.draft_file:
@@ -302,6 +388,9 @@ def main():
     rows = sheets_rows(ledger)
     if args.command == "audit":
         print(f"PROSPECTIVE_SCHEMA_OK forecast_count={len(rows)}; posterior_count={len(posterior.get_all_values())-1}")
+        return
+    if args.command == "refresh":
+        refresh_posterior(book)
         return
     now = datetime.now(timezone.utc)
     if args.command == "register":
