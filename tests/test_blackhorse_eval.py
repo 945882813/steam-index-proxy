@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from blackhorse_eval import (aware, integer, seed, closest, collect_ccu,
-                             collect_reviews, score_one)
+                             collect_reviews, locked_review_anchor, score_one)
 
 UTC=timezone.utc
 LOCK=datetime(2026,10,11,14,39,3,tzinfo=UTC)
@@ -119,6 +119,8 @@ class BlackhorseEvaluationTest(unittest.TestCase):
             {"AppID":"1478500","状态":"OK","语言口径":"schinese",
              "评论过滤口径":basis,"采样时间":(LOCK+timedelta(days=7)).isoformat(),"累计评论":4000},
             {"AppID":"1478500","状态":"OK","语言口径":"all",
+             "评论过滤口径":basis,"采样时间":(LOCK-timedelta(minutes=20)).isoformat(),"累计评论":42139},
+            {"AppID":"1478500","状态":"OK","语言口径":"all",
              "评论过滤口径":basis,"采样时间":(LOCK+timedelta(days=7)).isoformat(),"累计评论":43000}
         ])
         result=score_one(forecast("1478500","成熟参照",baseline_reviews=42139),
@@ -132,12 +134,50 @@ class BlackhorseEvaluationTest(unittest.TestCase):
         next_sample=LOCK+timedelta(days=7,hours=9,minutes=40)
         samples=collect_reviews([{
             "AppID":"4847040","状态":"OK","语言口径":"all",
+            "评论过滤口径":basis,"采样时间":(LOCK-timedelta(minutes=20)).isoformat(),
+            "累计评论":11
+        },{
+            "AppID":"4847040","状态":"OK","语言口径":"all",
             "评论过滤口径":basis,"采样时间":next_sample.isoformat(),
             "累计评论":29
         }])
         row=score_one(forecast("4847040",baseline_reviews=11),{},samples,next_sample+timedelta(minutes=1))
         self.assertEqual(row[13],18)
         self.assertIn("近似",row[15])
+
+    def test_locked_review_baseline_requires_prelock_matching_official_sample(self):
+        app="4847040"
+        p=forecast(app,baseline_reviews=11)
+        bad={
+            app:[(LOCK-timedelta(minutes=20),12),
+                 (LOCK+timedelta(days=7),50)]
+        }
+        row=score_one(p,{},bad,LOCK+timedelta(days=8))
+        self.assertEqual(row[12],11)  # Immutable locked prediction remains shown
+        self.assertEqual(row[13],"")  # Unsupported D7 delta is NOT published
+        self.assertIn("锁定评论累计数未找到",row[15])
+        self.assertIn("E0_INSUFFICIENT_D7",row[15])
+        self.assertIsNone(locked_review_anchor(bad[app],LOCK,11))
+        # A future sample of the same number also cannot establish the lock.
+        after={app:[(LOCK+timedelta(minutes=1),11),
+                    (LOCK+timedelta(days=7),50)]}
+        self.assertEqual(score_one(p,{},after,LOCK+timedelta(days=8))[13],"")
+
+    def test_d7_evidence_tiers_do_not_mean_forecast_success(self):
+        app="4847040"
+        t0=LOCK+timedelta(hours=2)
+        cs={app:[(t0,9,"Steam Index"),
+                 (t0+timedelta(days=7),3,"Steam Index")]}
+        rs={app:[(LOCK-timedelta(minutes=20),11),
+                 (LOCK+timedelta(days=7),11)]}
+        row=score_one(forecast(app,baseline_reviews=11),cs,rs,
+                      LOCK+timedelta(days=8))
+        self.assertEqual(row[13],0)
+        self.assertIn("E1_LOW_BASE",row[15])
+        self.assertIn("评论_D7采样=",row[15])
+        self.assertIn("评论基线样本=",row[15])
+        mature=forecast(app,stage="成熟参照",baseline_reviews=11)
+        self.assertIn("E1_REFERENCE_ONLY",score_one(mature,cs,rs,LOCK+timedelta(days=8))[15])
 
     def test_mismatched_times_do_not_fabricate_7d(self):
         p=forecast("4847040",baseline_reviews=11)
