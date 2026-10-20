@@ -25,13 +25,11 @@ LOCKED_HEADERS = [
 ]
 POST_HEADERS = [
     "预测ID", "AppID", "最近评估时间",
-    "D7后CCU", "D7_CC U变化率", "D7评论净增", "D7证据状态", "D7门槛判断",
+    "D7后CCU", "D7_CCU变化率", "D7评论净增", "D7证据状态", "D7门槛判断",
     "D30后CCU", "D30_CCU变化率", "D30评论净增", "D30证据状态", "D30门槛判断",
     "活动归因状态", "证据说明", "基线指纹",
 ]
-# Use an unambiguous canonical name even in code and spreadsheet.
-POST_HEADERS[4] = "D7_CCU变化率"
-POLICY_VERSION = "PF-2026-10-V1"
+ POLICY_VERSION = "PF-2026-10-V1"
 POLICIES = {
     POLICY_VERSION: {
         "review_language": "all",
@@ -186,6 +184,21 @@ def evaluate_window(row, cs, rs, now, days):
         return ("", "", "", "BASELINE_MISSING", "NOT_ELIGIBLE", "缺少锁定时同源/同口径可信基线")
     if row[4] in ("成熟参照", "Demo", "待发售"):
         return ("", "", "", "NOT_NEW_RELEASE", "EXCLUDED", "成熟参照、Demo或未发行不计新游黑马")
+    lock = aware(row[1])
+    if (lock is None or c_time > lock or r_time > lock or
+            (lock - c_time).total_seconds() > p["anchor_lookback_h"] * 3600 or
+            (lock - r_time).total_seconds() > p["anchor_lookback_h"] * 3600):
+        return ("", "", "", "INVALID_LOCK_ANCHOR", "NOT_ELIGIBLE", "基线不在锁定前12小时内")
+    # A checksum in the same workbook guards accidental drift, not a malicious
+    # editor who can recompute it. Reconfirm the source samples at evaluation.
+    c_anchor = any(abs((item[0] - c_time).total_seconds()) < 1.0 and
+                   item[1] == c0 and len(item) == 3 and item[2] == src
+                   for item in cs.get(appid, []))
+    r_anchor = any(abs((item[0] - r_time).total_seconds()) < 1.0 and
+                   item[1] == r0 for item in rs.get(appid, []))
+    if not (c_anchor and r_anchor):
+        return ("", "", "", "ANCHOR_NOT_VERIFIED", "NOT_ELIGIBLE",
+                "锁定基线无法与现存同源CCU及同过滤口径官方评论记录交叉验证")
     if c0 < p["min_ccu_baseline"] or r0 < p["min_review_baseline"]:
         return ("", "", "", "LOW_BASE", "NOT_ELIGIBLE", "锁定时基数不足；不对低分母给命中结论")
     ctarget, rtarget = c_time + timedelta(days=days), r_time + timedelta(days=days)
@@ -197,6 +210,15 @@ def evaluate_window(row, cs, rs, now, days):
         c_hit = None
     if r_hit and r_hit[0] > now:
         r_hit = None
+    if c_hit is None:
+        other_source = any(
+            len(item) == 3 and item[2] != src and
+            abs((item[0] - ctarget).total_seconds()) <= p["ccu_tolerance_h"] * 3600
+            for item in cs.get(appid, [])
+        )
+        if other_source:
+            return ("", "", "", "SOURCE_MISMATCH", "NOT_ELIGIBLE",
+                    "目标窗内仅观察到异源CCU；禁止Steam Index和Steam Official跨源增长")
     if c_hit is None or r_hit is None or r_hit[1] < r0:
         return ("", "", "", "EVIDENCE_MISSING", "NOT_ELIGIBLE",
                 "缺少目标窗内同源CCU或同口径评论；不跨来源补值，评论累计下降需复核")
@@ -240,7 +262,7 @@ def read_sheets(book):
 
 
 def sheets_rows(ledger):
-    values = ledger.get_all_values()
+    values = ledger.get_all_values(value_render_option="UNFORMATTED_VALUE")
     return from_sheet(values[1:])
 
 
