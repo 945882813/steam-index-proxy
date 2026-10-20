@@ -43,7 +43,7 @@ def locked(d=None, cc=None, rr=None):
 class ProspectiveTest(unittest.TestCase):
     def test_policy_and_weight_locked(self):
         row = locked()
-        self.assertEqual(row[11], 68.5)
+        self.assertEqual(row[11], 68.0)
         self.assertEqual(json.loads(row[13])["review_language"], "all")
         self.assertEqual(row[12], VERSION)
         self.assertTrue(validate_locked([row]))
