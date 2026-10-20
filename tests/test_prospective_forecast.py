@@ -293,7 +293,7 @@ class ProspectiveRefreshTests(unittest.TestCase):
         rs[app].append((t0 + timedelta(days=7), 160))
         # Second game has unchanged missing evidence; only first row should write.
         result = self._refresh([row, other], sheet, cs, rs, NOW + timedelta(days=8))
-        self.assertEqual(result, {"changed": 2, "added": 0, "unchanged": 0})
+        self.assertEqual(result, {"changed": 1, "added": 0, "unchanged": 1})
         self.assertEqual(sheet.rows[0][6], "EVIDENCE_VERIFIABLE")
         self.assertEqual(sheet.rows[0][7], "SIGNAL_CANDIDATE_REQUIRES_ATTRIBUTION")
         self.assertEqual(sheet.rows[0][13], "REVIEWED_EXTERNAL_PROMOTION_CONFIRMED")
@@ -323,7 +323,7 @@ class ProspectiveRefreshTests(unittest.TestCase):
         other = locked(draft("654321"), *baseline("654321"))
         sheet = _PosteriorSheet([evaluate_row(first, cs, rs, NOW)])
         result = self._refresh([first, other], sheet, cs, rs, NOW + timedelta(hours=1))
-        self.assertEqual(result, {"changed": 1, "added": 1, "unchanged": 0})
+        self.assertEqual(result, {"changed": 0, "added": 1, "unchanged": 1})
         self.assertEqual([r[0] for r in sheet.rows], [first[0], other[0]])
         self.assertEqual(sheet.rows[1][15], other[-1])
 
