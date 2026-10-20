@@ -55,6 +55,18 @@ def matched_ccu(points, target, hours, source=None):
             eligible.append((distance,t,n))
     return min(eligible,key=lambda x:(x[0],x[1]))[1:] if eligible else None
 
+def locked_review_anchor(points, lock_time, locked_count):
+    """Verify a locked review total against an actual pre-lock official sample.
+
+    points have already passed all-language and exact-filter validation.
+    A post-lock sample cannot retroactively validate a historical forecast.
+    """
+    candidates = [(t, n) for t, n in points
+                  if n == locked_count and
+                  lock_time - timedelta(hours=12) <= t <= lock_time]
+    return max(candidates, key=lambda item: item[0]) if candidates else None
+
+
 def pct(new,old):
     return round((new-old)/old,6) if new is not None and old is not None and old>0 else ""
 
@@ -108,7 +120,7 @@ def score_one(p,cs,rs,now):
         cbase=(initial,n0,None) if qualified else (initial,n0)
     else:
         cbase=seed(clist,initial)
-    rbase=(initial,r0) if r0 is not None else seed(rlist,initial)
+    rbase=locked_review_anchor(rlist,initial,r0) if r0 is not None else seed(rlist,initial)
     if cbase and n0 is None:n0=cbase[1]
     if rbase and r0 is None:r0=rbase[1]
     c_source=cbase[2] if cbase is not None and len(cbase)==3 else None
@@ -121,10 +133,12 @@ def score_one(p,cs,rs,now):
         c_matches.append(q)
         c_after.append(q[1] if q else None)
     delta=None
+    review_after=None
     if rbase:
         q=closest(rlist,rbase[0]+timedelta(days=7),12)
         if q and q[0]<=now and q[0]>initial and q[1]>=rbase[1]:
             delta=q[1]-rbase[1]
+            review_after=q
     d1,d7,d30=c_after
     elapsed=(now-initial).total_seconds()/86400
     if d7 is not None and delta is not None:status="D7可复核（不等于黑马成立）"
@@ -145,7 +159,25 @@ def score_one(p,cs,rs,now):
     if p.get("观察阶段")=="成熟参照":notes.append("成熟对照，不计入黑马命中率")
     if integer(p.get("初始CCU")) is None and cbase:notes.append("CCU锚点为预测后12小时内首次实测")
     if integer(p.get("初始评论总数")) is None and rbase:notes.append("评论锚点为预测后12小时内首次实测")
-    if delta is not None:notes.append("评论D7为按真实采样时间最近的7日近似，窗口±12小时；不是精确168小时")
+    if rbase:
+        notes.append(f"评论基线样本={rbase[0].astimezone(CN).isoformat(timespec='seconds')}；语言=all；过滤口径={REVIEW_BASIS}")
+    elif r0 is not None:
+        notes.append("锁定评论累计数未找到锁定前12小时内同口径同数值的官方样本；评论D7证据不足")
+    if review_after is not None:
+        skew_hours=(review_after[0]-(rbase[0]+timedelta(days=7))).total_seconds()/3600
+        notes.append(f"评论_D7采样={review_after[0].astimezone(CN).isoformat(timespec='seconds')}；距7日目标偏差={skew_hours:+.2f}小时")
+        notes.append("评论D7为真实累计采样差分，窗口±12小时；不是精确168小时")
+    # Evidence-quality tiers are NOT hit-rate scores or commercial success claims.
+    # E1 thresholds are conservative low-base flags, not statistical significance tests.
+    if d7 is None or delta is None:
+        tier="E0_INSUFFICIENT_D7"
+    elif p.get("观察阶段")=="成熟参照":
+        tier="E1_REFERENCE_ONLY"
+    elif (n0 is not None and n0 < 20) or (r0 is not None and r0 < 30):
+        tier="E1_LOW_BASE"
+    else:
+        tier="E2_SAME_SOURCE_APPROX"
+    notes.append(f"D7证据等级={tier}（仅证据质量，非预测成功或命中概率；低基数阈值CCU<20或评论<30）")
     if d7 is not None and delta is not None:notes.append("商业热度与活动归因需人工复核，非自动命中")
     return [pid,appid,str(p.get("游戏名称","")),str(p["基线锁定时间"]),
             now.astimezone(CN).isoformat(timespec="seconds"),
