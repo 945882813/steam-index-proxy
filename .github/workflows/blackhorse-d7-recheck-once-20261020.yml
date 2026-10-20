@@ -1,0 +1,29 @@
+name: One-time Blackhorse D7 Provenance Recheck 2026-10-20
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/blackhorse-d7-recheck-once-20261020.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-posterior-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        run: pip install -r requirements.txt
+      - name: Offline regression before production read-write
+        run: python -m unittest discover -s tests -v
+      - name: Re-evaluate locked predictions from historical Sheet evidence
+        run: python blackhorse_eval.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
