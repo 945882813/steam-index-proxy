@@ -9,6 +9,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from blackhorse_eval import CN, aware, collect_ccu, collect_reviews, matched_ccu, closest
@@ -29,9 +30,9 @@ POST_HEADERS = [
     "D30后CCU", "D30_CCU变化率", "D30评论净增", "D30证据状态", "D30门槛判断",
     "活动归因状态", "证据说明", "基线指纹",
 ]
-POLICY_VERSION = "PF-2026-10-V1"
+POLICY_VERSION = "PF-2026-10-V2"
 POLICIES = {
-    POLICY_VERSION: {
+    "PF-2026-10-V1": {
         "review_language": "all",
         "review_filter": "filter=updated;purchase_type=all;review_type=all;offtopic=0",
         "anchor_lookback_h": 12,
@@ -44,6 +45,21 @@ POLICIES = {
         "d30_min_review_delta": 200,
         "d30_min_ccu_growth": 0.40,
         "interpretation": "research screening thresholds; not statistical confidence or breakout hit rate",
+    },
+    POLICY_VERSION: {
+        "review_language": "all",
+        "review_filter": "filter=updated;purchase_type=all;review_type=all;offtopic=0",
+        "ccu_anchor_lookback_h": 12,
+        "review_anchor_lookback_h": 24,
+        "ccu_tolerance_h": 3.25,
+        "review_tolerance_h": 12,
+        "min_ccu_baseline": 20,
+        "min_review_baseline": 30,
+        "d7_min_review_delta": 50,
+        "d7_min_ccu_growth": 0.25,
+        "d30_min_review_delta": 200,
+        "d30_min_ccu_growth": 0.40,
+        "interpretation": "research screening thresholds; official cumulative review sample may be 24h old",
     },
 }
 STAGES = {"已发行", "待发售", "Demo", "成熟参照"}
@@ -87,9 +103,11 @@ def check_draft(draft):
     if draft["观察阶段"] not in STAGES:
         raise ValueError("unknown release stage")
     url = str(draft["证据链接"]).strip()
-    if not url.startswith("https://") or "store.steampowered.com/app/" not in url:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname != "store.steampowered.com":
         raise ValueError("official Steam evidence URL is required")
-    if f"/app/{appid}" not in url:
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) < 2 or parts[0] != "app" or parts[1] != appid:
         raise ValueError("Steam evidence URL must match AppID")
     scores = [score_number(draft[k]) for k in REQUIRED_DRAFT[5:9]]
     return appid, scores
@@ -105,21 +123,24 @@ def get_recent(points, now, hours=12):
                key=lambda p: p[0], default=None)
 
 
-def lock_draft(draft, cs, rs, now):
+def lock_draft(draft, cs, rs, now, policy_version=POLICY_VERSION):
     """Lock only the *actual* server clock, never a supplied backdated timestamp."""
     if now.tzinfo is None:
         raise ValueError("lock time must have timezone")
     now = now.astimezone(timezone.utc)
     appid, scores = check_draft(draft)
-    c = get_recent(cs.get(appid, []), now)
-    r = get_recent(rs.get(appid, []), now)
+    policy = POLICIES[policy_version]
+    c_hours = policy.get("ccu_anchor_lookback_h", policy.get("anchor_lookback_h"))
+    r_hours = policy.get("review_anchor_lookback_h", policy.get("anchor_lookback_h"))
+    c = get_recent(cs.get(appid, []), now, hours=c_hours)
+    r = get_recent(rs.get(appid, []), now, hours=r_hours)
     priority = round(sum(w * s for w, s in zip(WEIGHTS, scores)), 2)
     key = f"PF-{now.astimezone(CN):%Y%m%dT%H%M%S}-{appid}-{uuid4().hex[:8]}"
     row = [
         key, now.astimezone(CN).isoformat(timespec="seconds"), appid,
         str(draft["游戏名称"]).strip(), draft["观察阶段"],
         str(draft["研究假设"]).strip(), str(draft["证据链接"]).strip(),
-        *scores, priority, POLICY_VERSION, policy_snapshot(),
+        *scores, priority, policy_version, policy_snapshot(policy_version),
         c[0].astimezone(CN).isoformat(timespec="seconds") if c else "",
         c[1] if c else "", c[2] if c else "",
         r[0].astimezone(CN).isoformat(timespec="seconds") if r else "",
@@ -185,10 +206,13 @@ def evaluate_window(row, cs, rs, now, days):
     if row[4] in ("成熟参照", "Demo", "待发售"):
         return ("", "", "", "NOT_NEW_RELEASE", "EXCLUDED", "成熟参照、Demo或未发行不计新游黑马")
     lock = aware(row[1])
+    c_hours = p.get("ccu_anchor_lookback_h", p.get("anchor_lookback_h"))
+    r_hours = p.get("review_anchor_lookback_h", p.get("anchor_lookback_h"))
     if (lock is None or c_time > lock or r_time > lock or
-            (lock - c_time).total_seconds() > p["anchor_lookback_h"] * 3600 or
-            (lock - r_time).total_seconds() > p["anchor_lookback_h"] * 3600):
-        return ("", "", "", "INVALID_LOCK_ANCHOR", "NOT_ELIGIBLE", "基线不在锁定前12小时内")
+            (lock - c_time).total_seconds() > c_hours * 3600 or
+            (lock - r_time).total_seconds() > r_hours * 3600):
+        return ("", "", "", "INVALID_LOCK_ANCHOR", "NOT_ELIGIBLE",
+                f"基线不在锁定前时间窗内：CCU≤{c_hours}小时，评论≤{r_hours}小时")
     # A checksum in the same workbook guards accidental drift, not a malicious
     # editor who can recompute it. Reconfirm the source samples at evaluation.
     c_anchor = any(abs((item[0] - c_time).total_seconds()) < 1.0 and
@@ -290,6 +314,11 @@ def main():
         cs = collect_ccu(book.worksheet("CCU可信样本").get_all_records(), with_source=True)
         rs = collect_reviews(book.worksheet("评论采样").get_all_records())
         locked = lock_draft(draft, cs, rs, now)
+        if draft["观察阶段"] == "已发行":
+            if not (locked[14] and locked[16] and locked[17] and
+                    nonnegative_int(locked[15]) is not None and
+                    nonnegative_int(locked[18]) is not None):
+                raise RuntimeError("released-game registration blocked: missing recent genuine CCU/review anchor")
         ledger.append_row(locked, value_input_option="RAW")
         if not any(r[0] == locked[0] and r[-1] == locked[-1] for r in sheets_rows(ledger)):
             raise RuntimeError("locked forecast append verification failed")

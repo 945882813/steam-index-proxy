@@ -53,7 +53,7 @@ class ProspectiveTest(unittest.TestCase):
     def test_prelock_actual_anchor_not_future_or_stale(self):
         app = "123456"
         after = NOW + timedelta(minutes=1)
-        old = NOW - timedelta(hours=13)
+        old = NOW - timedelta(hours=25)
         row = locked(cc={app: [(after, 999, "Steam Official"), (old, 200, "Steam Index")]},
                      rr={app: [(after, 700), (old, 500)]})
         self.assertEqual(row[15], "")
@@ -153,6 +153,56 @@ class ProspectiveTest(unittest.TestCase):
         reference = locked(d, *baseline())
         post = evaluate_row(reference, {}, {}, NOW + timedelta(days=8))
         self.assertEqual(post[6], "NOT_NEW_RELEASE")
+
+    def test_v1_policy_remains_exactly_unchanged(self):
+        v1 = POLICIES["PF-2026-10-V1"]
+        self.assertEqual(v1["anchor_lookback_h"], 12)
+        self.assertNotIn("review_anchor_lookback_h", v1)
+        self.assertEqual(v1["d7_min_review_delta"], 50)
+        self.assertEqual(v1["d7_min_ccu_growth"], 0.25)
+        self.assertEqual(v1["d30_min_review_delta"], 200)
+        self.assertEqual(v1["d30_min_ccu_growth"], 0.40)
+        row = locked()
+        v1row = locked()
+        from prospective_forecast import lock_draft
+        c, r = baseline()
+        with patch("prospective_forecast.uuid4") as uuid:
+            uuid.return_value.hex = "abcdef1234567890"
+            v1row = lock_draft(draft(), c, r, NOW, policy_version="PF-2026-10-V1")
+        self.assertTrue(validate_locked([v1row]))
+        self.assertEqual(v1row[13], policy_snapshot("PF-2026-10-V1"))
+        self.assertNotEqual(v1row[13], row[13])
+
+    def test_v2_accepts_real_older_same_day_reviews_but_no_backdating(self):
+        from prospective_forecast import lock_draft
+        app = "123456"
+        ctime, rtime = NOW - timedelta(hours=2), NOW - timedelta(hours=16)
+        cs = {app: [(ctime, 101, "Steam Index")]}
+        rs = {app: [(rtime, 220)]}
+        with patch("prospective_forecast.uuid4") as uuid:
+            uuid.return_value.hex = "abcdef1234567890"
+            row = lock_draft(draft(), cs, rs, NOW)
+            v1row = lock_draft(draft(), cs, rs, NOW, policy_version="PF-2026-10-V1")
+        self.assertEqual(row[15], 101)
+        self.assertEqual(row[18], 220)
+        self.assertEqual(row[17], rtime.astimezone(timezone(timedelta(hours=8))).isoformat(timespec="seconds"))
+        self.assertEqual(v1row[18], "")
+        post = evaluate_row(row, cs, rs, NOW + timedelta(days=8))
+        self.assertEqual(post[6], "EVIDENCE_MISSING")
+        self.assertNotEqual(post[6], "INVALID_LOCK_ANCHOR")
+        self.assertNotEqual(post[6], "ANCHOR_NOT_VERIFIED")
+        stale = {app: [(NOW - timedelta(hours=25), 220)]}
+        older = lock_draft(draft(), cs, stale, NOW)
+        self.assertEqual(older[18], "")
+
+    def test_strict_steam_store_url_matching(self):
+        d = draft()
+        for url in ("https://evil.example/store.steampowered.com/app/123456/",
+                    "https://store.steampowered.com/app/1234567/",
+                    "http://store.steampowered.com/app/123456/"):
+            d["证据链接"] = url
+            with self.assertRaises(ValueError):
+                check_draft(d)
 
     def test_d30_separate_window_and_thresholds_are_locked(self):
         row = locked()
