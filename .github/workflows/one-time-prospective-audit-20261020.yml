@@ -1,0 +1,31 @@
+name: One-time Prospective Ledger Read-Only Audit 2026-10-20
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-prospective-audit-20261020.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Recheck offline unit tests
+        run: python -m unittest discover -s tests -q
+      - name: Validate prospective production Sheet headers and zero forecast count
+        run: |
+          python prospective_forecast.py audit
+          python prospective_forecast.py evaluate
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
