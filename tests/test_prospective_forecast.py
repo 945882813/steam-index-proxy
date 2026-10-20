@@ -118,6 +118,30 @@ class ProspectiveTest(unittest.TestCase):
         self.assertEqual(post[6], "SOURCE_MISMATCH")
         self.assertEqual(post[7], "NOT_ELIGIBLE")
 
+    def test_baseline_must_remain_cross_verifiable(self):
+        row = locked()
+        app = row[2]
+        t0 = NOW - timedelta(minutes=15)
+        cs = {app: [(t0 + timedelta(days=7), 160, "Steam Index")]}
+        rs = {app: [(t0, 100), (t0 + timedelta(days=7), 180)]}
+        result = evaluate_row(row, cs, rs, NOW + timedelta(days=8))
+        self.assertEqual(result[6], "ANCHOR_NOT_VERIFIED")
+        self.assertEqual(result[7], "NOT_ELIGIBLE")
+
+    def test_backdated_anchor_refused_even_with_matching_checksum(self):
+        row = locked()
+        row[14] = (NOW + timedelta(minutes=2)).isoformat()
+        row[-1] = fingerprint(row[:-1])
+        t0 = NOW - timedelta(minutes=15)
+        app = row[2]
+        result = evaluate_row(
+            row,
+            {app: [(t0, 100, "Steam Index")]},
+            {app: [(t0, 100)]},
+            NOW + timedelta(days=8)
+        )
+        self.assertEqual(result[6], "INVALID_LOCK_ANCHOR")
+
     def test_low_base_and_mature_reference_cannot_be_positive(self):
         c, r = baseline(ccu=9, reviews=11)
         row = locked(cc=c, rr=r)
@@ -134,9 +158,11 @@ class ProspectiveTest(unittest.TestCase):
         row = locked()
         app = row[2]
         t0 = NOW - timedelta(minutes=15)
-        cs = {app: [(t0 + timedelta(days=7), 110, "Steam Index"),
+        cs = {app: [(t0, 100, "Steam Index"),
+                    (t0 + timedelta(days=7), 110, "Steam Index"),
                     (t0 + timedelta(days=30), 150, "Steam Index")]}
-        rs = {app: [(t0 + timedelta(days=7), 130),
+        rs = {app: [(t0, 100),
+                    (t0 + timedelta(days=7), 130),
                     (t0 + timedelta(days=30), 301)]}
         post = evaluate_row(row, cs, rs, NOW + timedelta(days=31))
         self.assertEqual(post[7], "BELOW_PREREGISTERED_THRESHOLDS")
