@@ -94,8 +94,9 @@ jobs:
               assert str(game.get("发行阶段", "")).startswith("0-7d"), f"not confirmed new released game: {appid}"
               assert str(game.get("游戏名称", "")) == draft["游戏名称"], "game-name mismatch"
               assert str(ranking.get("游戏名称", "")) == draft["游戏名称"], "ranking-name mismatch"
-              for k in ("玩法创新分", "黑马潜力分", "玩家趋势分", "商业热度分"):
-                  assert float(ranking[k]) == float(draft[k]), f"rank score drift: {appid}/{k}"
+              for draft_key, rank_key in (("玩法创新分", "创新分"), ("黑马潜力分", "黑马潜力分"),
+                                          ("玩家趋势分", "玩家趋势分"), ("商业热度分", "商业热度分")):
+                  assert float(ranking[rank_key]) == float(draft[draft_key]), f"rank score drift: {appid}/{draft_key}"
               row = lock_draft(draft, cs, rs, now)
               assert row[12] == POLICY_VERSION and row[14] and row[17], f"missing source anchor: {appid}"
               assert row[16] in ("Steam Index", "Steam Official"), f"source absent: {appid}"
