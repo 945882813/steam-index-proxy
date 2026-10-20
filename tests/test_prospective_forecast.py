@@ -221,5 +221,145 @@ class ProspectiveTest(unittest.TestCase):
         self.assertEqual(post[15], row[-1])
 
 
+
+class _PosteriorSheet:
+    def __init__(self, rows=()):
+        self.rows = [list(row) for row in rows]
+        self.updates = []
+        self.appended = []
+
+    def get_all_values(self):
+        return [POST_HEADERS] + [
+            [str(v) if v is not None else "" for v in row]
+            for row in self.rows
+        ]
+
+    def batch_update(self, changes, value_input_option):
+        assert value_input_option == "RAW"
+        self.updates.extend(changes)
+        for change in changes:
+            index = int(change["range"].split(":")[0][1:]) - 2
+            self.rows[index] = list(change["values"][0])
+
+    def append_rows(self, rows, value_input_option):
+        assert value_input_option == "RAW"
+        self.appended.extend(rows)
+        self.rows.extend([list(row) for row in rows])
+
+
+class _DataBook:
+    class _Source:
+        def get_all_records(self):
+            return []
+
+    def worksheet(self, title):
+        assert title in ("CCU可信样本", "评论采样")
+        return self._Source()
+
+
+class ProspectiveRefreshTests(unittest.TestCase):
+    """Offline concurrency/readback contract: existing data only, never Steam."""
+
+    def _refresh(self, forecasts, stored, cs, rs, when):
+        from prospective_forecast import refresh_posterior
+        with patch("prospective_forecast.read_sheets", return_value=(object(), stored)), \
+             patch("prospective_forecast.sheets_rows", return_value=forecasts), \
+             patch("prospective_forecast.collect_ccu", return_value=cs), \
+             patch("prospective_forecast.collect_reviews", return_value=rs):
+            return refresh_posterior(_DataBook(), now=when)
+
+    def test_no_change_means_no_write_even_if_clock_advances(self):
+        row = locked()
+        cs, rs = baseline()
+        early = evaluate_row(row, cs, rs, NOW + timedelta(minutes=1))
+        sheet = _PosteriorSheet([early])
+        result = self._refresh([row], sheet, cs, rs, NOW + timedelta(days=3))
+        self.assertEqual(result, {"changed": 0, "added": 0, "unchanged": 1})
+        self.assertEqual(len(sheet.updates), 0)
+        self.assertEqual(len(sheet.appended), 0)
+        self.assertEqual(sheet.rows[0][2], early[2])
+
+    def test_matured_window_only_updates_changed_row_preserving_manual_decision(self):
+        row = locked()
+        app = row[2]
+        cs, rs = baseline()
+        t0 = NOW - timedelta(minutes=15)
+        other = locked(draft("654321"), *baseline("654321"))
+        orig1 = evaluate_row(row, cs, rs, NOW + timedelta(minutes=1))
+        orig2 = evaluate_row(other, {}, {}, NOW + timedelta(minutes=1))
+        orig1[13] = "REVIEWED_EXTERNAL_PROMOTION_CONFIRMED"
+        sheet = _PosteriorSheet([orig1, orig2])
+        cs[app].append((t0 + timedelta(days=7), 140, "Steam Index"))
+        rs[app].append((t0 + timedelta(days=7), 160))
+        # Second game has unchanged missing evidence; only first row should write.
+        result = self._refresh([row, other], sheet, cs, rs, NOW + timedelta(days=8))
+        self.assertEqual(result, {"changed": 1, "added": 0, "unchanged": 1})
+        self.assertEqual(sheet.rows[0][6], "EVIDENCE_VERIFIABLE")
+        self.assertEqual(sheet.rows[0][7], "SIGNAL_CANDIDATE_REQUIRES_ATTRIBUTION")
+        self.assertEqual(sheet.rows[0][13], "REVIEWED_EXTERNAL_PROMOTION_CONFIRMED")
+        # Missing source anchor for second game changes pending -> missing,
+        # but it must remain NOT eligible rather than a fabricated zero.
+        self.assertEqual(sheet.rows[1][6], "ANCHOR_NOT_VERIFIED")
+        self.assertEqual(sheet.rows[1][5], "")
+        self.assertEqual(sheet.rows[0][15], row[-1])
+
+    def test_only_relevant_row_changes_once_after_7d_observation(self):
+        row = locked()
+        app = row[2]
+        cs, rs = baseline()
+        now = NOW + timedelta(days=8)
+        t0 = NOW - timedelta(minutes=15)
+        cs[app].append((t0 + timedelta(days=7), 140, "Steam Index"))
+        rs[app].append((t0 + timedelta(days=7), 160))
+        first = evaluate_row(row, cs, rs, now)
+        sheet = _PosteriorSheet([first])
+        result = self._refresh([row], sheet, cs, rs, now + timedelta(hours=12))
+        self.assertEqual(result["changed"], 0)
+        self.assertEqual(sheet.updates, [])
+
+    def test_partial_registration_recovery_appends_missing_only(self):
+        first = locked()
+        cs, rs = baseline()
+        other = locked(draft("654321"), *baseline("654321"))
+        sheet = _PosteriorSheet([evaluate_row(first, cs, rs, NOW)])
+        result = self._refresh([first, other], sheet, cs, rs, NOW + timedelta(hours=1))
+        self.assertEqual(result, {"changed": 0, "added": 1, "unchanged": 1})
+        self.assertEqual([r[0] for r in sheet.rows], [first[0], other[0]])
+        self.assertEqual(sheet.rows[1][15], other[-1])
+
+    def test_any_tampered_or_unknown_posterior_blocks_all_writes(self):
+        row = locked()
+        cs, rs = baseline()
+        bad = evaluate_row(row, cs, rs, NOW)
+        for mutation in (
+            lambda r: r.__setitem__(15, "incorrect fingerprint"),
+            lambda r: r.__setitem__(0, "PF-unknown"),
+            lambda r: r.__setitem__(1, "999999"),
+        ):
+            rowcopy = list(bad)
+            mutation(rowcopy)
+            sheet = _PosteriorSheet([rowcopy])
+            with self.assertRaisesRegex(RuntimeError, "mismatch|orphan|duplicate"):
+                self._refresh([row], sheet, cs, rs, NOW)
+            self.assertEqual(sheet.updates, [])
+            self.assertEqual(sheet.appended, [])
+
+    def test_duplicate_posterior_blocks_all_writes(self):
+        row = locked()
+        cs, rs = baseline()
+        snap = evaluate_row(row, cs, rs, NOW)
+        sheet = _PosteriorSheet([snap, snap])
+        with self.assertRaisesRegex(RuntimeError, "duplicate"):
+            self._refresh([row], sheet, cs, rs, NOW)
+        self.assertEqual(sheet.updates, [])
+
+    def test_empty_ledger_has_no_sheet_writes_and_never_reads_evidence(self):
+        sheet = _PosteriorSheet()
+        with patch("prospective_forecast.collect_ccu", side_effect=AssertionError("unexpected")):
+            result = self._refresh([], sheet, {}, {}, NOW)
+        self.assertEqual(result["added"], 0)
+        self.assertEqual(result["changed"], 0)
+        self.assertEqual(sheet.updates, [])
+
 if __name__ == "__main__":
     unittest.main()

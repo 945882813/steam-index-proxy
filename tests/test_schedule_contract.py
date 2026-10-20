@@ -31,6 +31,10 @@ class ScheduleContractTests(unittest.TestCase):
         source, crons = schedule_crons("radar-v12.yml")
         self.assertEqual(crons, ["17 19 * * *", "47 21 * * *", "17 23 * * *"])
         self.assertIn("python daily_recovery.py", source)
+        self.assertIn("python prospective_forecast.py refresh", source)
+        self.assertIn("steps.offline.outcome == 'success'", source)
+        self.assertIn("!cancelled()", source)
+        self.assertNotIn("\\n  push:", source)
 
     def test_every_scheduled_workflow_logs_trigger_and_actual_start(self):
         for filename in ("ccu-sampler.yml", "radar-watchdog.yml"):
