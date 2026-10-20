@@ -30,8 +30,10 @@ def closest(points,target,hours):
     return min(possible,key=lambda x:(x[0],x[1]))[1:] if possible else None
 
 def seed(points,after):
-    eligible=[(t,n) for t,n in points if after<=t<=after+timedelta(hours=12)]
-    return min(eligible) if eligible else None
+    # Accept both legacy (timestamp,count) and production
+    # (timestamp,count,provider) while retaining provider provenance.
+    eligible=[item for item in points if after<=item[0]<=after+timedelta(hours=12)]
+    return min(eligible,key=lambda item:item[0]) if eligible else None
 
 def matched_ccu(points, target, hours, source=None):
     """Require the same provider when provenance is supplied.
