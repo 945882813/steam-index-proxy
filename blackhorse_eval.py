@@ -166,7 +166,7 @@ def score_one(p,cs,rs,now):
     if review_after is not None:
         skew_hours=(review_after[0]-(rbase[0]+timedelta(days=7))).total_seconds()/3600
         notes.append(f"评论_D7采样={review_after[0].astimezone(CN).isoformat(timespec='seconds')}；距7日目标偏差={skew_hours:+.2f}小时")
-        notes.append("评论D7为真实累计采样差分，窗口±12小时；不是精确168小时")
+        notes.append("评论D7为真实累计采样差分（近似D7），窗口±12小时；不是精确168小时")
     # Evidence-quality tiers are NOT hit-rate scores or commercial success claims.
     # E1 thresholds are conservative low-base flags, not statistical significance tests.
     if d7 is None or delta is None:
