@@ -59,6 +59,58 @@ class BlackhorseEvaluationTest(unittest.TestCase):
         ])
         self.assertEqual(accepted,{"100":[(LOCK,18)]})
 
+    def test_production_ccu_collector_preserves_source(self):
+        accepted=collect_ccu([{
+            "AppID":"123", "数据质量":"VERIFIED", "来源":"Steam Index",
+            "来源链接":"https://public-api.steamidx.com/x",
+            "采样时间":LOCK.isoformat(), "CCU":50
+        }],with_source=True)
+        self.assertEqual(accepted,{"123":[(LOCK,50,"Steam Index")]})
+
+    def test_blackhorse_d7_refuses_cross_provider_ccu(self):
+        app="4847040"
+        t0=LOCK+timedelta(hours=7)
+        data={app:[
+            (t0,9,"Steam Index"),
+            (t0+timedelta(days=1),2,"Steam Official"),
+            (t0+timedelta(days=7),3,"Steam Official")
+        ]}
+        p=forecast(app, baseline_reviews=11)
+        row=score_one(p,data,{},t0+timedelta(days=7,minutes=1))
+        self.assertEqual(row[5],9)
+        self.assertEqual(row[6],"")
+        self.assertEqual(row[8],"")
+        self.assertEqual(row[14],"跨日证据不足")
+        self.assertIn("CCU同源匹配：Steam Index",row[15])
+
+    def test_blackhorse_d7_preserves_real_same_source_and_evidence_time(self):
+        app="4847040"
+        t0=LOCK+timedelta(hours=7)
+        d7=t0+timedelta(days=7,minutes=12)
+        samples={app:[
+            (t0,9,"Steam Index"),
+            (t0+timedelta(days=1),2,"Steam Index"),
+            (d7,3,"Steam Index"),
+        ]}
+        review={app:[(t0,11),(d7,11)]}
+        row=score_one(forecast(app),samples,review,d7+timedelta(minutes=1))
+        self.assertEqual(row[5],9)
+        self.assertEqual(row[6],2)
+        self.assertEqual(row[8],3)
+        self.assertEqual(row[9],-0.666667)
+        self.assertEqual(row[13],0)
+        self.assertIn("D7可复核",row[14])
+        self.assertIn("CCU_D7采样=",row[15])
+
+    def test_locked_baseline_without_source_is_not_compared_to_real_source_samples(self):
+        app="4847040"
+        t0=LOCK+timedelta(days=1)
+        data={app:[(t0,12,"Steam Official")]}
+        row=score_one(forecast(app,baseline_ccu=9),data,{},t0+timedelta(minutes=1))
+        self.assertEqual(row[5],9)
+        self.assertEqual(row[6],"")
+        self.assertIn("锁定CCU未附可核验来源",row[15])
+
     def test_review_delta_uses_same_language_basis(self):
         basis="filter=updated;purchase_type=all;review_type=all;offtopic=0"
         samples=collect_reviews([
