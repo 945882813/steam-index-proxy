@@ -110,11 +110,12 @@ class ProspectiveTest(unittest.TestCase):
         row = locked()
         app = row[2]
         t0 = NOW - timedelta(minutes=15)
-        cs = {app: [(t0 + timedelta(days=7), 130, "Steam Official")]}
-        rs = {app: [(t0 + timedelta(days=7), 150)]}
+        cs = {app: [(t0, 100, "Steam Index"),
+                    (t0 + timedelta(days=7), 130, "Steam Official")]}
+        rs = {app: [(t0, 100), (t0 + timedelta(days=7), 150)]}
         post = evaluate_row(row, cs, rs, NOW + timedelta(days=8))
         self.assertEqual(post[3:6], ["", "", ""])
-        self.assertEqual(post[6], "EVIDENCE_MISSING")
+        self.assertEqual(post[6], "SOURCE_MISMATCH")
         self.assertEqual(post[7], "NOT_ELIGIBLE")
 
     def test_low_base_and_mature_reference_cannot_be_positive(self):
