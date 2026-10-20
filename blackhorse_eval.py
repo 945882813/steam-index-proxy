@@ -33,10 +33,35 @@ def seed(points,after):
     eligible=[(t,n) for t,n in points if after<=t<=after+timedelta(hours=12)]
     return min(eligible) if eligible else None
 
+def matched_ccu(points, target, hours, source=None):
+    """Require the same provider when provenance is supplied.
+
+    A tuple without a source is only accepted by historical offline fixtures.
+    If source=None in a real source-qualified series, refuse cross-source
+    comparisons rather than borrowing an observation from another provider.
+    """
+    eligible=[]
+    for item in points:
+        if len(item)==3:
+            t,n,provider=item
+            if source is None or provider != source:
+                continue
+        else:
+            t,n=item
+        distance=abs((t-target).total_seconds())
+        if distance<=hours*3600:
+            eligible.append((distance,t,n))
+    return min(eligible,key=lambda x:(x[0],x[1]))[1:] if eligible else None
+
 def pct(new,old):
     return round((new-old)/old,6) if new is not None and old is not None and old>0 else ""
 
-def collect_ccu(records):
+def collect_ccu(records, with_source=False):
+    """Read verified CCU. Retain provenance for production prediction scoring.
+
+    with_source=False remains for older offline fixture callers; production
+    always requests source-qualified triples (time, count, provider).
+    """
     series={}
     for r in records:
         appid=str(r.get("AppID","")).strip()
@@ -48,7 +73,9 @@ def collect_ccu(records):
         if src not in ("Steam Index","Steam Official"): continue
         t=aware(r.get("采样时间"))
         n=integer(r.get("CCU"))
-        if t is not None and n is not None: series.setdefault(appid,[]).append((t,n))
+        if t is not None and n is not None:
+            item=(t,n,src) if with_source else (t,n)
+            series.setdefault(appid,[]).append(item)
     return {k:sorted(set(v)) for k,v in series.items()}
 
 def collect_reviews(records):
@@ -69,14 +96,28 @@ def score_one(p,cs,rs,now):
     clist=cs.get(appid,[])
     rlist=rs.get(appid,[])
     n0=integer(p.get("初始CCU")); r0=integer(p.get("初始评论总数"))
-    cbase=(initial,n0) if n0 is not None else seed(clist,initial)
+    # Source-qualified production CCU samples protect D1/D7/D30 from
+    # comparing Steam Index against the Steam Official fallback.
+    initial_ccu_supplied = n0 is not None
+    if initial_ccu_supplied:
+        # Historic locked CCU without a provider is not sufficient evidence
+        # for a same-provider percentage in production.
+        qualified = any(len(item)==3 for item in clist)
+        cbase=(initial,n0,None) if qualified else (initial,n0)
+    else:
+        cbase=seed(clist,initial)
     rbase=(initial,r0) if r0 is not None else seed(rlist,initial)
     if cbase and n0 is None:n0=cbase[1]
     if rbase and r0 is None:r0=rbase[1]
+    c_source=cbase[2] if cbase is not None and len(cbase)==3 else None
     c_after=[]
+    c_matches=[]
     for days in (1,7,30):
-        q=closest(clist,cbase[0]+timedelta(days=days),3.25) if cbase else None
-        c_after.append(q[1] if q and q[0]<=now and q[0]>initial else None)
+        q=matched_ccu(clist,cbase[0]+timedelta(days=days),3.25,source=c_source) if cbase else None
+        if not (q and q[0]<=now and q[0]>initial):
+            q=None
+        c_matches.append(q)
+        c_after.append(q[1] if q else None)
     delta=None
     if rbase:
         q=closest(rlist,rbase[0]+timedelta(days=7),12)
@@ -92,6 +133,13 @@ def score_one(p,cs,rs,now):
     notes=["初始预测不可修改；新采样仅更新后验层"]
     if cbase:
         notes.append("CCU比值基于API采集时间匹配（±3.25小时）；Steam Index current不提供可独立核验的精确观测时刻")
+        if c_source:
+            notes.append(f"CCU同源匹配：{c_source}；基线样本={cbase[0].astimezone(CN).isoformat(timespec='seconds')}")
+        elif initial_ccu_supplied and any(len(item)==3 for item in clist):
+            notes.append("锁定CCU未附可核验来源，本次不计算跨来源增长")
+        for days, found in zip((1,7,30), c_matches):
+            if found is not None:
+                notes.append(f"CCU_D{days}采样={found[0].astimezone(CN).isoformat(timespec='seconds')}")
     if p.get("观察阶段")=="成熟参照":notes.append("成熟对照，不计入黑马命中率")
     if integer(p.get("初始CCU")) is None and cbase:notes.append("CCU锚点为预测后12小时内首次实测")
     if integer(p.get("初始评论总数")) is None and rbase:notes.append("评论锚点为预测后12小时内首次实测")
@@ -112,7 +160,7 @@ def run():
     if ledger.row_values(1)[:len(PRED)]!=PRED:raise RuntimeError("prediction schema mismatch")
     if target.row_values(1)[:len(OUT)]!=OUT:raise RuntimeError("evaluation schema mismatch")
     now=datetime.now(timezone.utc)
-    cs=collect_ccu(worksheet(book,"CCU_Validated").get_all_records())
+    cs=collect_ccu(worksheet(book,"CCU_Validated").get_all_records(),with_source=True)
     rs=collect_reviews(book.worksheet("评论采样").get_all_records())
     locked=ledger.get_all_records()
     for p in locked:
