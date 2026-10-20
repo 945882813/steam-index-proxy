@@ -53,7 +53,7 @@ class ProspectiveTest(unittest.TestCase):
     def test_prelock_actual_anchor_not_future_or_stale(self):
         app = "123456"
         after = NOW + timedelta(minutes=1)
-        old = NOW - timedelta(hours=13)
+        old = NOW - timedelta(hours=25)
         row = locked(cc={app: [(after, 999, "Steam Official"), (old, 200, "Steam Index")]},
                      rr={app: [(after, 700), (old, 500)]})
         self.assertEqual(row[15], "")
