@@ -31,11 +31,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Offline syntax and tests
+        id: offline
         run: |
-          python -m py_compile radar_v12.py blackhorse_eval.py daily_recovery.py
+          python -m py_compile radar_v12.py blackhorse_eval.py daily_recovery.py prospective_forecast.py
           python -m unittest discover -s tests -v
       - name: Selectively collect only missing daily Steam data
         run: python daily_recovery.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
+          GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
+
+      - name: Incremental prospective D7/D30 evidence refresh (same existing schedule)
+        if: ${{ !cancelled() && steps.offline.outcome == 'success' }}
+        run: python prospective_forecast.py refresh
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets['GOOGLE_SERVICE_ACCOUNT_JSON'] }}
           GOOGLE_SHEET_ID: ${{ secrets['GOOGLE_SHEET_ID'] }}
